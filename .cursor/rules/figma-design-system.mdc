@@ -1,0 +1,93 @@
+---
+description: Rules for implementing Figma designs using the Figma MCP server. Covers component organization, styling conventions, design tokens, asset handling, and the required Figma-to-code workflow.
+globs: ["src/components/**", "packages/ui/src/**", "apps/web/src/**"]
+alwaysApply: false
+---
+
+# StackOne Figma Design System Rules
+
+## Component Organization
+
+- Shared UI components are in `packages/ui/src/components/` (e.g. `button.tsx`)
+- App-specific components are in `apps/web/src/components/`
+- Use kebab-case for file names (e.g. `sidebar-nav.tsx`, `logs-table.tsx`)
+- Use PascalCase for component exports (e.g. `SidebarNav`, `LogsTable`)
+- Components must accept a `className` prop for composition
+- Use CVA (class-variance-authority) for component variants
+
+## Import Conventions
+
+- Use `@workspace/ui/components/*` for shared UI components
+- Use `@workspace/ui/lib/utils` for the `cn()` utility
+- Use `@/` alias for app-level imports (maps to `apps/web/src/`)
+- Use Lucide React (`lucide-react`) for icons
+
+## Styling Approach
+
+- IMPORTANT: Use Tailwind CSS v4 utility classes for all styling
+- IMPORTANT: Never hardcode colors — use design tokens from `packages/ui/src/styles/globals.css`
+- The `cn()` utility from `@workspace/ui/lib/utils` combines clsx + tailwind-merge
+- Use shadcn/ui patterns and Base UI primitives where possible
+- Font: Geist Variable (already configured via `--font-sans`)
+
+## Design Tokens
+
+Design tokens are defined as CSS variables in `packages/ui/src/styles/globals.css` and mapped via `@theme inline`.
+
+### Core Tokens
+
+| Token | CSS Variable | Usage |
+|-------|-------------|-------|
+| Background | `--background` / `bg-background` | Page/section backgrounds |
+| Foreground | `--foreground` / `text-foreground` | Primary text |
+| Card | `--card` / `bg-card` | Card backgrounds |
+| Border | `--border` / `border-border` | Borders and dividers |
+| Muted | `--muted` / `bg-muted` | Muted backgrounds |
+| Muted Foreground | `--muted-foreground` / `text-muted-foreground` | Secondary text |
+| Primary | `--primary` / `bg-primary` | Primary actions |
+| Secondary | `--secondary` / `bg-secondary` | Secondary elements |
+| Destructive | `--destructive` / `text-destructive` | Error states |
+| Sidebar | `--sidebar` / `bg-sidebar` | Sidebar background |
+
+### StackOne Brand Tokens
+
+| Token | CSS Variable | Hex | Usage |
+|-------|-------------|-----|-------|
+| Success | `--success` | `#00AF66` | Success states, active nav items, success status tags |
+| Success Foreground | `--success-foreground` | `#047B43` | Success text on light backgrounds |
+
+## Figma MCP Integration Rules
+
+### Required Flow (do not skip)
+
+1. Run `get_design_context` first to fetch the structured representation for the exact node(s)
+2. If the response is too large or truncated, run `get_metadata` to get the high-level node map, then re-fetch only the required node(s) with `get_design_context`
+3. Run `get_screenshot` for a visual reference of the node variant being implemented
+4. Only after you have both `get_design_context` and `get_screenshot`, download any assets needed and start implementation
+5. Translate the output (usually React + Tailwind) into this project's conventions, styles, and framework
+6. Validate against Figma for 1:1 look and behavior before marking complete
+
+### Implementation Rules
+
+- Treat the Figma MCP output (React + Tailwind) as a representation of design and behavior, not as final code style
+- Map Figma colors to project design tokens where possible
+- Reuse existing components from `packages/ui/src/components/` instead of duplicating functionality
+- Use the project's color system, typography scale, and spacing tokens consistently
+- Strive for 1:1 visual parity with the Figma design
+- Validate the final UI against the Figma screenshot for both look and behavior
+
+## Asset Handling
+
+- IMPORTANT: If the Figma MCP server returns a localhost source for an image or SVG, use that source directly
+- IMPORTANT: DO NOT import/add new icon packages — use Lucide React icons or assets from the Figma payload
+- IMPORTANT: DO NOT use or create placeholders if a localhost source is provided
+- Store downloaded assets in `apps/web/public/assets/`
+
+## Project-Specific Conventions
+
+- This is a pnpm monorepo managed by Turborepo
+- React 19 + Vite + TypeScript
+- shadcn/ui with Base UI primitives
+- State management: React built-ins (useState, useContext)
+- No routing library currently — single-page app
+- Dark mode support via `.dark` class and `ThemeProvider`
