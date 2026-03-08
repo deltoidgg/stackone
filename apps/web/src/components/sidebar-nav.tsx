@@ -3,15 +3,16 @@ import {
   LayoutDashboard,
   Users,
   List,
-  GitBranch,
-  Puzzle,
+  Link,
+  ShieldCheck as AuthIcon,
   KeyRound,
   Webhook,
   Settings,
-  ShieldCheck,
   ExternalLink,
   ChevronDown,
   PanelLeftClose,
+  Search,
+  Play,
 } from "lucide-react"
 
 interface NavItem {
@@ -21,34 +22,19 @@ interface NavItem {
   external?: boolean
 }
 
-interface NavSection {
-  title: string
-  items: NavItem[]
-}
-
-const sections: NavSection[] = [
-  {
-    title: "Overview",
-    items: [
-      { label: "Overview", icon: <LayoutDashboard className="size-4" /> },
-      { label: "Accounts", icon: <Users className="size-4" /> },
-      { label: "Logs", icon: <List className="size-4" />, active: true },
-    ],
-  },
-  {
-    title: "Configuration",
-    items: [
-      { label: "Field Mapping", icon: <GitBranch className="size-4" /> },
-      { label: "Integrations", icon: <Puzzle className="size-4" /> },
-      { label: "API Keys", icon: <KeyRound className="size-4" /> },
-      { label: "Webhooks", icon: <Webhook className="size-4" /> },
-      { label: "Project Settings", icon: <Settings className="size-4" /> },
-    ],
-  },
+const navItems: NavItem[] = [
+  { label: "Connection", icon: <Link className="size-4" /> },
+  { label: "Auth Configs", icon: <AuthIcon className="size-4" /> },
+  { label: "Accounts", icon: <Users className="size-4" /> },
+  { label: "Playground", icon: <Play className="size-4" /> },
+  { label: "API Keys", icon: <KeyRound className="size-4" /> },
+  { label: "Webhooks", icon: <Webhook className="size-4" /> },
+  { label: "Logs", icon: <List className="size-4" />, active: true },
+  { label: "Overview", icon: <LayoutDashboard className="size-4" /> },
+  { label: "Project Settings", icon: <Settings className="size-4" /> },
 ]
 
 const supportItems: NavItem[] = [
-  { label: "Field Coverage", icon: <ShieldCheck className="size-4" /> },
   {
     label: "Documentation",
     icon: <ExternalLink className="size-4" />,
@@ -63,49 +49,55 @@ export function SidebarNav() {
         <div className="flex flex-1 items-center gap-3">
           <StackOneLogo />
           <span className="flex-1 truncate text-sm font-medium text-foreground">
-            Production [EU1]
+            Example Project [EU-E...
           </span>
           <ChevronDown className="size-4 text-muted-foreground" />
         </div>
         <PanelLeftClose className="size-4 text-muted-foreground" />
       </div>
 
+      <div className="px-5 pt-3 pb-1">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5">
+          <Search className="size-3.5 text-muted-foreground" />
+          <span className="flex-1 text-xs text-muted-foreground">Search</span>
+          <kbd className="rounded border border-border bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+            Ctrl
+          </kbd>
+          <kbd className="rounded border border-border bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+            K
+          </kbd>
+        </div>
+      </div>
+
       <div className="flex flex-1 flex-col justify-between overflow-y-auto">
-        <nav className="flex flex-col gap-1 px-5 py-2">
-          {sections.map((section) => (
-            <div key={section.title} className="flex flex-col gap-1">
-              <p className="px-3 pt-3.5 pb-1 text-xs font-semibold text-[#bbb]">
-                {section.title}
-              </p>
-              {section.items.map((item) => (
-                <button
-                  key={item.label}
-                  className={cn(
-                    "flex h-[37px] w-full items-center gap-4 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                    item.active
-                      ? "bg-success/10 text-success-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  {item.icon}
-                  {item.label}
-                </button>
-              ))}
-            </div>
+        <nav className="flex flex-col gap-0.5 px-5 py-2">
+          {navItems.map((item) => (
+            <button
+              key={item.label}
+              className={cn(
+                "flex h-[34px] w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                item.active
+                  ? "bg-success/10 text-success-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              {item.icon}
+              {item.label}
+            </button>
           ))}
         </nav>
 
         <div className="flex flex-col">
-          <div className="flex flex-col gap-1 px-5 py-4">
-            <p className="px-3 pt-3.5 pb-1 text-xs font-semibold text-[#bbb]">
+          <div className="flex flex-col gap-0.5 px-5 py-4">
+            <p className="px-3 pt-2 pb-1 text-xs font-semibold text-[#bbb]">
               Support
             </p>
             {supportItems.map((item) => (
               <button
                 key={item.label}
-                className="flex h-[37px] w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex h-[34px] w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                <span className="flex items-center gap-4">
+                <span className="flex items-center gap-3">
                   {item.icon}
                   {item.label}
                 </span>
@@ -117,12 +109,12 @@ export function SidebarNav() {
           </div>
 
           <div className="flex h-[60px] items-center border-t border-border px-5">
-            <div className="flex w-full items-center gap-4 rounded-xl px-3 py-2.5">
+            <div className="flex w-full items-center gap-3 rounded-lg px-3 py-2">
               <div className="flex size-4 items-center justify-center rounded border border-border text-xs font-medium">
-                M
+                C
               </div>
               <span className="flex-1 truncate text-sm font-medium text-foreground">
-                Morgan Williams
+                Candidate-Tes...
               </span>
               <Settings className="size-[13px] text-muted-foreground" />
             </div>

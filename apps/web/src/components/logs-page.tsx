@@ -1,17 +1,15 @@
+import { useState, useEffect, useCallback } from "react"
 import { cn } from "@workspace/ui/lib/utils"
-import { Button } from "@workspace/ui/components/button"
 import {
   Search,
-  RefreshCw,
-  BookOpen,
   ChevronDown,
-  ArrowUp,
-  ArrowDown,
-  Minus,
-  Plus,
+  ChevronLeft,
   ChevronRight,
+  MoreHorizontal,
+  Plus,
 } from "lucide-react"
 import { SidebarNav } from "@/components/sidebar-nav"
+import { LogDetailPanel, type LogEntryDetail } from "@/components/log-detail-panel"
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
 type StatusCode = number
@@ -19,66 +17,141 @@ type StatusCode = number
 interface LogEntry {
   date: string
   time: string
-  account: string
-  accountIcon: string
+  provider: string
+  providerVersion: string
+  providerIcon: string
+  originOwner: string
   source: string
-  sourceIcon: "connection" | "identifier" | "key" | "token" | "mapping"
+  sourceIcon: string
   method: HttpMethod
   resource: string
   path: string
-  duration: number
+  duration: string
   status: StatusCode
-  retries: number
+  count: number
+  organization: string
+  url: string
+  expires: string
+  responseStatus: StatusCode
 }
 
 const SAMPLE_LOGS: LogEntry[] = [
-  { date: "Aug 13", time: "21:05:19.123", account: "Sample Organization", accountIcon: "bamboo", source: "Test Connection", sourceIcon: "connection", method: "GET", resource: "List Employees", path: "/employees.applic...", duration: 583, status: 200, retries: 0 },
-  { date: "Aug 12", time: "21:05:19.123", account: "Sample Organization", accountIcon: "greenhouse", source: "Identifier 1", sourceIcon: "identifier", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: 224, status: 200, retries: 2 },
-  { date: "Aug 09", time: "21:05:19.123", account: "Sample Organization", accountIcon: "zelt", source: "Key", sourceIcon: "key", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 247, status: 200, retries: 3 },
-  { date: "Aug 08", time: "21:05:19.123", account: "Sample Organization", accountIcon: "zelt", source: "Identifier 1", sourceIcon: "identifier", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: 205, status: 401, retries: 3 },
-  { date: "Aug 06", time: "21:05:19.123", account: "Sample Organization", accountIcon: "bullhorn", source: "Refresh Token", sourceIcon: "token", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 154, status: 200, retries: 2 },
-  { date: "Aug 13", time: "21:05:19.123", account: "Sample Organization", accountIcon: "bamboo", source: "Test Connection", sourceIcon: "connection", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 583, status: 200, retries: 0 },
-  { date: "Aug 12", time: "21:05:19.123", account: "Sample Organization", accountIcon: "greenhouse", source: "Identifier 1", sourceIcon: "identifier", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: 224, status: 200, retries: 5 },
-  { date: "Aug 09", time: "21:05:19.123", account: "Sample Organization", accountIcon: "zelt", source: "Test Mapping", sourceIcon: "mapping", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 247, status: 200, retries: 3 },
-  { date: "Aug 06", time: "21:05:19.123", account: "Sample Organization", accountIcon: "bullhorn", source: "Refresh Token", sourceIcon: "token", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 154, status: 200, retries: 2 },
-  { date: "Aug 13", time: "21:05:19.123", account: "Sample Organization", accountIcon: "bamboo", source: "Test Connection", sourceIcon: "connection", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 583, status: 200, retries: 0 },
-  { date: "Aug 12", time: "21:05:19.123", account: "Sample Organization", accountIcon: "greenhouse", source: "Identifier 1", sourceIcon: "identifier", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: 224, status: 200, retries: 5 },
-  { date: "Aug 09", time: "21:05:19.123", account: "Sample Organization", accountIcon: "zelt", source: "Test Mapping", sourceIcon: "mapping", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 247, status: 200, retries: 3 },
-  { date: "Aug 08", time: "21:05:19.123", account: "Sample Organization", accountIcon: "bullhorn", source: "Identifier 1", sourceIcon: "identifier", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: 205, status: 401, retries: 0 },
-  { date: "Aug 06", time: "21:05:19.123", account: "Sample Organization", accountIcon: "greenhouse", source: "Test Connection", sourceIcon: "connection", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: 154, status: 200, retries: 3 },
+  { date: "Aug 13", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/employees.applic...", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/hris/employees", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 12", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "224 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 09", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Key", sourceIcon: "key", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
+  { date: "Aug 08", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "205 ms", status: 401, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
+  { date: "Aug 06", time: "21:05:19.123", provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 13", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 12", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 09", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
+  { date: "Aug 06", time: "21:05:19.123", provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "orange", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 13", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 12", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 09", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
+  { date: "Aug 08", time: "21:05:19.123", provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "205 ms", status: 401, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
+  { date: "Aug 06", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "154 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
 ]
 
-const CHART_DATA = [
-  28, 36, 29, 23, 34, 37, 39, 41, 55, 31, 23, 47, 58, 52, 53, 45, 28, 28,
-  36, 29, 23, 34, 37, 39, 41, 55, 31, 23, 47, 58, 52, 53, 45, 28, 28, 36,
-  29, 23, 34, 37, 39, 41, 55, 31, 23, 47, 58, 52, 45, 45, 28, 37, 39, 41,
-  55, 31, 23, 47, 58, 52, 53, 45, 28, 36, 29, 23, 34, 37, 39, 41, 55, 31,
-  23, 47, 58, 52, 29, 36, 29, 23, 34, 37, 39, 41, 55, 31, 23, 47, 58, 52,
+const TIME_LABELS = [
+  "15:10", "15:11", "15:12", "15:13", "15:14",
+  "15:15", "15:16", "15:17", "15:18",
 ]
 
-const ERROR_DATA = [
-  3, 6, 6, 3, 7, 6, 7, 6, 10, 6, 3, 7, 8, 7, 6, 6, 3, 3,
-  6, 6, 3, 7, 6, 7, 6, 10, 6, 3, 7, 8, 7, 6, 6, 3, 3, 6,
-  6, 3, 7, 6, 7, 6, 10, 6, 3, 7, 8, 7, 6, 6, 3, 6, 7, 6,
-  10, 6, 3, 7, 8, 7, 6, 6, 3, 6, 6, 3, 7, 6, 7, 6, 10, 6,
-  3, 7, 8, 7, 6, 6, 6, 3, 7, 6, 7, 6, 10, 6, 3, 7, 8, 7,
-]
+const BARS_PER_GROUP = 9
 
-const TIME_LABELS = ["15:10", "15:11", "15:12", "15:13", "15:14", "15:15", "15:16", "15:17", "15:18"]
+function generateChartData() {
+  const success: number[] = []
+  const error: number[] = []
+  for (let g = 0; g < TIME_LABELS.length; g++) {
+    for (let b = 0; b < BARS_PER_GROUP; b++) {
+      const base = 150 + Math.floor(Math.random() * 250)
+      const spike = Math.random() > 0.85 ? Math.floor(Math.random() * 600) : 0
+      success.push(base + spike)
+      error.push(
+        Math.random() > 0.7
+          ? 30 + Math.floor(Math.random() * 120)
+          : 10 + Math.floor(Math.random() * 40)
+      )
+    }
+  }
+  return { success, error }
+}
+
+const CHART = generateChartData()
 
 export function LogsPage() {
+  const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null)
+  const [navDirection, setNavDirection] = useState<"prev" | "next" | null>(null)
+  const panelOpen = selectedLogIndex !== null
+
+  const selectedLog: LogEntryDetail | null =
+    selectedLogIndex !== null ? SAMPLE_LOGS[selectedLogIndex] : null
+
+  const handleRowClick = useCallback((index: number) => {
+    setNavDirection(null)
+    setSelectedLogIndex(index)
+  }, [])
+
+  const handleClose = useCallback(() => {
+    setNavDirection(null)
+    setSelectedLogIndex(null)
+  }, [])
+
+  const handleNavigate = useCallback(
+    (direction: "prev" | "next") => {
+      setNavDirection(direction)
+      setSelectedLogIndex((prev) => {
+        if (prev === null) return null
+        if (direction === "prev") return Math.max(0, prev - 1)
+        return Math.min(SAMPLE_LOGS.length - 1, prev + 1)
+      })
+    },
+    []
+  )
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!panelOpen) return
+      if (e.key === "Escape") {
+        handleClose()
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault()
+        handleNavigate("prev")
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault()
+        handleNavigate("next")
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [panelOpen, handleClose, handleNavigate])
+
   return (
     <div className="flex h-screen bg-background">
       <SidebarNav />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header />
-        <main className="flex-1 overflow-auto px-7 pb-7">
-          <div className="flex flex-col gap-7">
-            <Toolbar />
-            <ChartSection />
-            <LogsTable logs={SAMPLE_LOGS} />
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[#fafafa] p-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
+          <Header />
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-5 pb-4">
+            <div className="shrink-0"><Toolbar /></div>
+            <div className="shrink-0"><ChartSection /></div>
+            <LogsTable
+              logs={SAMPLE_LOGS}
+              selectedIndex={selectedLogIndex}
+              onRowClick={handleRowClick}
+            />
+            <div className="shrink-0"><Pagination total={34} page={1} pageSize={25} /></div>
           </div>
-        </main>
+        </div>
+        <LogDetailPanel
+          log={selectedLog}
+          open={panelOpen}
+          selectedIndex={selectedLogIndex}
+          direction={navDirection}
+          onClose={handleClose}
+          onNavigate={handleNavigate}
+        />
       </div>
     </div>
   )
@@ -86,12 +159,8 @@ export function LogsPage() {
 
 function Header() {
   return (
-    <div className="flex h-[60px] shrink-0 items-center justify-between px-7 pt-2">
-      <h1 className="text-base font-semibold text-foreground">Request Logs</h1>
-      <Button variant="outline" size="sm" className="gap-1.5">
-        <BookOpen className="size-3.5" />
-        Docs
-      </Button>
+    <div className="flex h-[50px] shrink-0 items-center px-5">
+      <h1 className="text-base font-semibold text-foreground">Logs</h1>
     </div>
   )
 }
@@ -99,40 +168,43 @@ function Header() {
 function Toolbar() {
   return (
     <div className="flex items-center gap-2">
-      <div className="flex flex-1 items-center gap-2.5 rounded-xl border border-border bg-white px-2.5 py-1.5 shadow-[0_1px_1px_rgba(0,0,0,0.15)]">
-        <Search className="size-[15px] text-[#bbb]" />
-        <span className="text-[13px] text-[#bbb]">Search / Filter</span>
+      <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5">
+        <Search className="size-3.5 text-muted-foreground" />
+        <span className="text-[13px] text-muted-foreground">Search...</span>
       </div>
 
       <Divider />
 
-      <ToolbarButton>10 Jul 2024 - 23 Jul 2024</ToolbarButton>
-
-      <Divider />
-
       <ToolbarButton>
-        Background Logs
-        <Toggle enabled={false} />
-      </ToolbarButton>
-
-      <ToolbarButton>
-        Full Width
-        <Toggle enabled={false} />
+        Daily
+        <ChevronDown className="size-3 text-muted-foreground" />
       </ToolbarButton>
 
       <Divider />
 
       <ToolbarButton>
-        <RefreshCw className="size-[13px]" />
-        Refresh
+        <span className="text-muted-foreground">Start Time</span>
       </ToolbarButton>
+
+      <Divider />
+
+      <ToolbarButton>
+        <span className="text-muted-foreground">End Time</span>
+      </ToolbarButton>
+
+      <div className="ml-auto flex items-center gap-2">
+        <span className="text-[13px] font-medium text-foreground">
+          Hide Background Logs
+        </span>
+        <Toggle enabled={true} />
+      </div>
     </div>
   )
 }
 
 function ToolbarButton({ children }: { children: React.ReactNode }) {
   return (
-    <button className="flex shrink-0 items-center gap-1.5 rounded-xl border border-border bg-white px-2.5 py-1.5 text-[13px] font-medium text-foreground shadow-[0_1px_0_rgba(0,0,0,0.15)] transition-colors hover:bg-muted">
+    <button className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted">
       {children}
     </button>
   )
@@ -140,66 +212,80 @@ function ToolbarButton({ children }: { children: React.ReactNode }) {
 
 function Toggle({ enabled }: { enabled: boolean }) {
   return (
-    <div
+    <button
       className={cn(
-        "flex h-3 w-5 items-center rounded-full p-0.5 transition-colors",
+        "flex h-[18px] w-[32px] items-center rounded-full p-[2px] transition-colors",
         enabled ? "justify-end bg-success" : "bg-[#e8e8e8]"
       )}
     >
-      <div className="size-2 rounded-full bg-white shadow-[0_2px_4px_rgba(0,35,11,0.2)]" />
-    </div>
+      <div className="size-[14px] rounded-full bg-white shadow-[0_2px_4px_rgba(0,35,11,0.2)]" />
+    </button>
   )
 }
 
 function Divider() {
-  return <div className="h-4 w-px shrink-0 bg-[#e8e8e8]" />
+  return <div className="h-4 w-px shrink-0 bg-border" />
 }
 
 function ChartSection() {
-  const maxVal = Math.max(...CHART_DATA)
+  const gridLines = [0, 1000, 2000]
+  const yMax = 2400
 
   return (
-    <div className="rounded-xl border border-border">
-      <div className="flex items-center justify-between px-4 py-3">
+    <div className="rounded-xl border border-border bg-[#f8f8f8]">
+      <div className="flex items-center justify-between px-5 py-3">
         <span className="text-sm font-semibold text-foreground">
           API Requests
         </span>
-        <div className="flex shrink-0 items-center gap-4">
+        <div className="flex items-center gap-5">
           <StatItem
-            color="bg-[#0a0a0a]"
+            dotColor="bg-muted-foreground/40"
             label="Total"
             value="580,000"
-            trend={<TrendBadge value="0%" direction="neutral" />}
+            trend="— 0%"
+            trendColor="text-muted-foreground"
           />
           <StatItem
-            color="bg-success"
+            dotColor="bg-success"
             label="Success"
             value="580,000"
-            trend={<TrendBadge value="2%" direction="up" />}
+            trend="↑ 2%"
+            trendColor="text-success-foreground"
           />
           <StatItem
-            color="bg-[#ef3737]"
+            dotColor="bg-[#ef3737]/70"
             label="Error"
             value="20,000"
-            trend={<TrendBadge value="2%" direction="down" />}
+            trend="↓ 2%"
+            trendColor="text-[#ef3737]"
           />
         </div>
       </div>
 
-      <div className="px-4 pb-4 pt-2">
-        <div className="flex gap-3">
-          <div className="flex w-5 flex-col justify-between text-[11px] text-muted-foreground">
-            <span>2k</span>
-            <span>1k</span>
-            <span>0k</span>
+      <div className="mx-3 mb-3 rounded-lg bg-white">
+        <div className="flex">
+          <div className="flex w-8 shrink-0 flex-col-reverse justify-between py-4 pr-1.5 text-right text-[10px] text-muted-foreground">
+            {gridLines.map((v) => (
+              <span key={v}>
+                {v >= 1000 ? `${v / 1000}k` : `${v}k`}
+              </span>
+            ))}
           </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className="flex h-[180px] items-end gap-px">
-              {CHART_DATA.map((val, i) => {
-                const totalHeight = (val / maxVal) * 100
-                const errVal = ERROR_DATA[i] ?? 0
-                const errorHeight = (errVal / maxVal) * 100
-                const successHeight = totalHeight - errorHeight
+
+          <div className="relative min-w-0 flex-1 py-4 pr-4">
+            {gridLines.map((v) => (
+              <div
+                key={v}
+                className="pointer-events-none absolute left-0 right-4 border-t border-dashed border-border/60"
+                style={{ bottom: `${(v / yMax) * 100}%` }}
+              />
+            ))}
+
+            <div className="relative flex h-[160px] items-end gap-px">
+              {CHART.success.map((sVal, i) => {
+                const eVal = CHART.error[i]
+                const ePct = (eVal / yMax) * 100
+                const sPct = (sVal / yMax) * 100
 
                 return (
                   <div
@@ -208,20 +294,26 @@ function ChartSection() {
                     style={{ height: "100%" }}
                   >
                     <div
-                      className="w-full rounded-t-[1px] bg-[#ef3737]/40"
-                      style={{ height: `${errorHeight}%` }}
+                      className="w-full rounded-t-[1px] bg-[#ef3737]/50"
+                      style={{ height: `${ePct}%` }}
                     />
                     <div
-                      className="w-full bg-success/40"
-                      style={{ height: `${successHeight}%` }}
+                      className="w-full bg-success/60"
+                      style={{ height: `${sPct}%` }}
                     />
                   </div>
                 )
               })}
             </div>
-            <div className="flex justify-between text-[11px] text-muted-foreground">
-              {TIME_LABELS.map((t) => (
-                <span key={t}>{t}</span>
+
+            <div className="mt-2 flex">
+              {TIME_LABELS.map((label, gi) => (
+                <div
+                  key={gi}
+                  className="flex-1 text-center text-[10px] text-muted-foreground"
+                >
+                  {label}
+                </div>
               ))}
             </div>
           </div>
@@ -232,150 +324,123 @@ function ChartSection() {
 }
 
 function StatItem({
-  color,
+  dotColor,
   label,
   value,
   trend,
+  trendColor,
 }: {
-  color: string
+  dotColor: string
   label: string
   value: string
-  trend: React.ReactNode
+  trend: string
+  trendColor: string
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <div className={cn("size-2 rounded-full", color)} />
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-xs text-muted-foreground">|</span>
-      <span className="text-xs font-medium text-foreground">{value}</span>
-      {trend}
+    <div className="flex items-center gap-1.5 text-[12px]">
+      <span className={cn("size-2 rounded-full", dotColor)} />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold text-foreground">{value}</span>
+      <span className={cn("font-medium", trendColor)}>{trend}</span>
     </div>
   )
 }
 
-function TrendBadge({
-  value,
-  direction,
+function LogsTable({
+  logs,
+  selectedIndex,
+  onRowClick,
 }: {
-  value: string
-  direction: "up" | "down" | "neutral"
+  logs: LogEntry[]
+  selectedIndex: number | null
+  onRowClick: (index: number) => void
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
-        direction === "up" && "bg-success/10 text-success-foreground",
-        direction === "down" && "bg-[#ef3737]/10 text-[#ef3737]",
-        direction === "neutral" && "bg-muted text-muted-foreground"
-      )}
-    >
-      {direction === "up" && <ArrowUp className="size-2.5" />}
-      {direction === "down" && <ArrowDown className="size-2.5" />}
-      {direction === "neutral" && <Minus className="size-2.5" />}
-      {value}
-    </span>
-  )
-}
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-[#f8f8f8]">
+      <div className="shrink-0 overflow-x-auto px-3">
+        <div className="flex min-w-[1100px] items-center py-3 text-[13px] font-semibold text-foreground">
+          <SortHeader className="w-[170px]">Requested</SortHeader>
+          <SortHeader className="w-[190px]">Account</SortHeader>
+          <SortHeader className="w-[160px]">Source</SortHeader>
+          <SortHeader className="min-w-0 flex-1">Request</SortHeader>
+          <div className="flex w-[32px] shrink-0 items-center justify-center">
+            <button className="flex size-5 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted">
+              <Plus className="size-3" />
+            </button>
+          </div>
+          <SortHeader className="w-[90px]">Duration</SortHeader>
+          <SortHeader className="w-[70px]">Status</SortHeader>
+          <div className="w-[90px] shrink-0" />
+        </div>
+      </div>
 
-const SOURCE_ICONS: Record<string, React.ReactNode> = {
-  connection: <ConnectionIcon />,
-  identifier: <IdentifierIcon />,
-  key: <KeyIcon />,
-  token: <TokenIcon />,
-  mapping: <MappingIcon />,
-}
-
-function LogsTable({ logs }: { logs: LogEntry[] }) {
-  return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full min-w-[1000px] text-left text-sm">
-        <thead>
-          <tr className="border-b border-border">
-            <SortableHeader className="w-[170px]">Requested</SortableHeader>
-            <SortableHeader className="w-[190px]">Account</SortableHeader>
-            <SortableHeader className="w-[165px]">Source</SortableHeader>
-            <th className="px-4 py-3 font-semibold text-foreground">
-              <div className="flex items-center justify-between">
-                <span>Request</span>
-                <div className="flex items-center gap-5">
-                  <Plus className="size-[13px] text-muted-foreground" />
-                  <ChevronDown className="size-3 text-muted-foreground" />
+      <div className="mx-3 mb-3 min-h-0 flex-1 overflow-y-auto rounded-lg bg-white">
+        <div className="min-w-[1100px]">
+          {logs.map((log, i) => (
+            <div
+              key={i}
+              onClick={() => onRowClick(i)}
+              className={cn(
+                "group flex cursor-pointer items-center border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-muted/20",
+                selectedIndex === i && "bg-success/5"
+              )}
+            >
+                <div className="w-[170px] shrink-0 px-4 py-2.5">
+                  <span className="whitespace-nowrap text-muted-foreground">
+                    {log.date}
+                    <span className="mx-2 text-muted-foreground/30">|</span>
+                    {log.time}
+                  </span>
+                </div>
+                <div className="w-[190px] shrink-0 px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <ProviderIcon type={log.providerIcon} />
+                    <span className="truncate text-muted-foreground">
+                      {log.organization}
+                    </span>
+                  </div>
+                </div>
+                <div className="w-[160px] shrink-0 px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <SourceIcon />
+                    <span className="truncate text-muted-foreground">
+                      {log.source}
+                    </span>
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1 px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <MethodBadge method={log.method} />
+                    <span className="text-muted-foreground">{log.resource}</span>
+                    <span className="truncate text-muted-foreground/60">{log.path}</span>
+                  </div>
+                </div>
+                <div className="w-[32px] shrink-0" />
+                <div className="w-[90px] shrink-0 px-4 py-2.5">
+                  <span className="text-muted-foreground">{log.duration}</span>
+                </div>
+                <div className="w-[70px] shrink-0 px-4 py-2.5">
+                  <StatusBadge code={log.status} />
+                </div>
+                <div className="flex w-[90px] shrink-0 items-center justify-end gap-2 px-3 py-2.5">
+                  <span className="text-[12px] text-muted-foreground/60">{log.count}</span>
+                  <button
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex size-6 items-center justify-center rounded transition-colors hover:bg-muted"
+                  >
+                    <MoreHorizontal className="size-3.5 text-muted-foreground/50" />
+                  </button>
+                  <ChevronRight className="size-3.5 text-muted-foreground/40" />
                 </div>
               </div>
-            </th>
-            <SortableHeader className="w-[110px]">Duration</SortableHeader>
-            <SortableHeader className="w-[95px]">Status</SortableHeader>
-            <th className="w-[115px] px-4 py-3" />
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map((log, i) => (
-            <tr
-              key={i}
-              className="border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
-            >
-              <td className="px-4 py-3">
-                <span className="text-sm text-muted-foreground">
-                  {log.date}
-                  <span className="mx-1.5 text-muted-foreground/50">|</span>
-                  {log.time}
-                </span>
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-2.5">
-                  <AccountBadge type={log.accountIcon} />
-                  <span className="text-sm text-muted-foreground">
-                    {log.account}
-                  </span>
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex size-5 items-center justify-center rounded-md border border-border">
-                    {SOURCE_ICONS[log.sourceIcon]}
-                  </div>
-                  <span className="text-sm text-muted-foreground">
-                    {log.source}
-                  </span>
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <MethodBadge method={log.method} />
-                  <span className="text-sm text-muted-foreground">
-                    {log.resource}
-                  </span>
-                  <span className="text-sm text-muted-foreground/50">|</span>
-                  <span className="text-sm text-muted-foreground truncate">
-                    {log.path}
-                  </span>
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                <span className="text-sm font-medium text-foreground">
-                  {log.duration}
-                </span>
-                <span className="ml-1 text-sm text-muted-foreground">ms</span>
-              </td>
-              <td className="px-4 py-3">
-                <StatusBadge code={log.status} />
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <RetryBadge count={log.retries} />
-                  <ExpandButton />
-                  <ChevronRight className="size-3 text-muted-foreground" />
-                </div>
-              </td>
-            </tr>
           ))}
-        </tbody>
-      </table>
+          </div>
+      </div>
     </div>
   )
 }
 
-function SortableHeader({
+function SortHeader({
   children,
   className,
 }: {
@@ -383,17 +448,12 @@ function SortableHeader({
   className?: string
 }) {
   return (
-    <th
-      className={cn(
-        "px-4 py-3 font-semibold text-foreground",
-        className
-      )}
-    >
-      <div className="flex items-center justify-between">
+    <div className={cn("shrink-0 px-4", className)}>
+      <div className="flex items-center gap-1">
         <span>{children}</span>
         <ChevronDown className="size-3 text-muted-foreground" />
       </div>
-    </th>
+    </div>
   )
 }
 
@@ -409,7 +469,7 @@ function MethodBadge({ method }: { method: HttpMethod }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+        "inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[11px] font-semibold",
         colors[method]
       )}
     >
@@ -419,13 +479,13 @@ function MethodBadge({ method }: { method: HttpMethod }) {
 }
 
 function StatusBadge({ code }: { code: StatusCode }) {
-  const isError = code >= 400
+  const isSuccess = code >= 200 && code < 300
 
   return (
     <span
       className={cn(
-        "text-sm font-medium",
-        isError ? "text-[#ef3737]" : "text-success-foreground"
+        "text-[13px] font-medium",
+        isSuccess ? "text-success-foreground" : "text-[#ef3737]"
       )}
     >
       {code}
@@ -433,66 +493,90 @@ function StatusBadge({ code }: { code: StatusCode }) {
   )
 }
 
-function RetryBadge({ count }: { count: number }) {
-  return (
-    <div className="flex size-4 items-center justify-center rounded border border-border text-[10px] font-medium text-muted-foreground">
-      {count}
-    </div>
-  )
-}
-
-function ExpandButton() {
-  return (
-    <button className="flex size-5 items-center justify-center rounded-md border border-border transition-colors hover:bg-muted">
-      <Minus className="size-2.5 text-muted-foreground" />
-    </button>
-  )
-}
-
-function AccountBadge({ type }: { type: string }) {
+function ProviderIcon({ type }: { type: string }) {
   const colors: Record<string, string> = {
-    bamboo: "bg-[#73c41d]",
-    greenhouse: "bg-[#3b8427]",
-    zelt: "bg-[#6366f1]",
-    bullhorn: "bg-[#ef4444]",
+    green: "bg-[#22c55e]",
+    blue: "bg-[#3b82f6]",
+    dark: "bg-[#374151]",
+    red: "bg-[#ef4444]",
+    orange: "bg-[#f97316]",
   }
 
   return (
     <div
       className={cn(
-        "size-[18px] rounded-sm",
+        "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white",
         colors[type] ?? "bg-muted"
       )}
-    />
+    >
+      S
+    </div>
   )
 }
 
-function ConnectionIcon() {
+function SourceIcon() {
   return (
-    <div className="size-[13px] rounded-sm border border-[#e8e8e8] bg-white" />
+    <div className="flex size-5 shrink-0 items-center justify-center rounded border border-border bg-muted/30">
+      <div className="size-2.5 rounded-sm bg-muted-foreground/30" />
+    </div>
   )
 }
 
-function IdentifierIcon() {
-  return (
-    <div className="size-[13px] rounded-sm border border-[#e8e8e8] bg-[#f5f5f5]" />
-  )
-}
+function Pagination({
+  total,
+  page,
+  pageSize,
+}: {
+  total: number
+  page: number
+  pageSize: number
+}) {
+  const totalPages = Math.ceil(total / pageSize)
 
-function KeyIcon() {
   return (
-    <div className="size-[13px] rounded-sm border border-dashed border-[#bbb] bg-white" />
-  )
-}
+    <div className="flex items-center justify-center gap-4 py-2 text-[13px] text-muted-foreground">
+      <span>
+        Total {total} Items
+      </span>
 
-function TokenIcon() {
-  return (
-    <div className="size-[13px] rounded-full border border-[#e8e8e8] bg-white" />
-  )
-}
+      <div className="flex items-center gap-1">
+        <button
+          disabled={page <= 1}
+          className="flex size-7 items-center justify-center rounded border border-border transition-colors hover:bg-muted disabled:opacity-40"
+        >
+          <ChevronLeft className="size-3.5" />
+        </button>
+        {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+          <button
+            key={p}
+            className={cn(
+              "flex size-7 items-center justify-center rounded border text-[13px] font-medium transition-colors",
+              p === page
+                ? "border-success bg-success/10 text-success-foreground"
+                : "border-border hover:bg-muted"
+            )}
+          >
+            {p}
+          </button>
+        ))}
+        <button
+          disabled={page >= totalPages}
+          className="flex size-7 items-center justify-center rounded border border-border transition-colors hover:bg-muted disabled:opacity-40"
+        >
+          <ChevronRight className="size-3.5" />
+        </button>
+      </div>
 
-function MappingIcon() {
-  return (
-    <div className="size-[13px] rounded-sm border border-[#e8e8e8] bg-[#fafafa]" />
+      <span>{pageSize} / page</span>
+
+      <div className="flex items-center gap-1.5">
+        <span>Go to</span>
+        <input
+          type="text"
+          className="w-12 rounded border border-border bg-white px-2 py-0.5 text-center text-[13px] text-foreground outline-none focus:border-success"
+        />
+        <span>Page</span>
+      </div>
+    </div>
   )
 }
