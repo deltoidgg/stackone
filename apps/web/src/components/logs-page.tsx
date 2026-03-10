@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { cn } from "@workspace/ui/lib/utils"
 import { Tooltip } from "@workspace/ui/components/tooltip"
 import {
   Search,
   ChevronDown,
+  ChevronUp,
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
@@ -13,6 +14,7 @@ import {
   CalendarDays,
   Check,
   X,
+  Building2,
 } from "lucide-react"
 import { SidebarNav } from "@/components/sidebar-nav"
 import { LogDetailPanel, type LogEntryDetail } from "@/components/log-detail-panel"
@@ -221,13 +223,64 @@ function generateChartData(): { bars: ChartBarData[]; xLabels: ChartXLabel[] } {
 const SAMPLE_LOGS = generateLogs()
 const CHART = generateChartData()
 
-function formatRelativeTime(daysAgo: number): string {
-  if (daysAgo === 0) return "Today"
-  if (daysAgo === 1) return "Yesterday"
-  if (daysAgo < 7) return `${daysAgo} days ago`
-  if (daysAgo < 14) return "1 week ago"
-  if (daysAgo < 30) return `${Math.floor(daysAgo / 7)} weeks ago`
-  return `${Math.floor(daysAgo / 30)} months ago`
+const REFERENCE_NOW_SECONDS =
+  CHART_START_SECONDS + CHART_TOTAL_BARS * CHART_BUCKET_SECONDS + 30
+
+function formatRelativeTime(log: LogEntry): string {
+  if (log.daysAgo > 0) {
+    if (log.daysAgo === 1) return "yesterday"
+    if (log.daysAgo < 7) return `${log.daysAgo} days ago`
+    if (log.daysAgo < 14) return "1 week ago"
+    if (log.daysAgo < 30) return `${Math.floor(log.daysAgo / 7)} weeks ago`
+    return `${Math.floor(log.daysAgo / 30)} months ago`
+  }
+  const logSeconds = timeToSeconds(log.time)
+  const diff = Math.max(0, REFERENCE_NOW_SECONDS - logSeconds)
+  if (diff < 5) return "just now"
+  if (diff < 60) return `${Math.floor(diff)}s ago`
+  const mins = Math.floor(diff / 60)
+  if (diff < 3600) return `${mins} min${mins !== 1 ? "s" : ""} ago`
+  const hours = Math.floor(diff / 3600)
+  return `${hours} hour${hours !== 1 ? "s" : ""} ago`
+}
+
+interface TopAccountEntry {
+  organization: string
+  providerIcon: string
+  count: number
+  avgDuration: number
+}
+
+function parseDuration(d: string): number {
+  return parseInt(d.replace(/[^\d]/g, ""))
+}
+
+function computeTopAccounts(logs: LogEntry[]): TopAccountEntry[] {
+  const byOrg = new Map<
+    string,
+    { count: number; totalDuration: number; providerIcon: string }
+  >()
+
+  for (const log of logs) {
+    const entry = byOrg.get(log.organization) || {
+      count: 0,
+      totalDuration: 0,
+      providerIcon: log.providerIcon,
+    }
+    entry.count++
+    entry.totalDuration += parseDuration(log.duration)
+    byOrg.set(log.organization, entry)
+  }
+
+  return Array.from(byOrg.entries())
+    .map(([org, data]) => ({
+      organization: org,
+      providerIcon: data.providerIcon,
+      count: data.count,
+      avgDuration: Math.round(data.totalDuration / data.count),
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
 }
 
 // ---------------------------------------------------------------------------
@@ -237,30 +290,49 @@ function formatRelativeTime(daysAgo: number): string {
 export function LogsPage() {
   const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null)
   const [navDirection, setNavDirection] = useState<"prev" | "next" | null>(null)
-  const [showRelativeTime, setShowRelativeTime] = useState(false)
+  const [showRelativeTime, setShowRelativeTime] = useState(true)
   const [methodFilters, setMethodFilters] = useState<Set<HttpMethod>>(new Set())
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "error">("all")
   const [selectedBarIndex, setSelectedBarIndex] = useState<number | null>(null)
+  const [selectedAccount, setSelectedAccount] = useState<string | null>(null)
+  const [timeSortDirection, setTimeSortDirection] = useState<"desc" | "asc">(
+    "desc",
+  )
 
   const panelOpen = selectedLogIndex !== null
   const selectedBar =
     selectedBarIndex !== null ? CHART.bars[selectedBarIndex] : null
 
-  const filteredLogs = SAMPLE_LOGS.filter((log) => {
+  const timeFilteredLogs = SAMPLE_LOGS.filter((log) => {
     if (selectedBar) {
       const logSec = timeToSeconds(log.time)
       const startSec = timeToSeconds(selectedBar.timeStart)
       const endSec = timeToSeconds(selectedBar.timeEnd)
       if (logSec < startSec || logSec >= endSec) return false
     }
+    return true
+  })
+
+  const topAccounts = computeTopAccounts(timeFilteredLogs)
+
+  const filteredLogs = timeFilteredLogs.filter((log) => {
+    if (selectedAccount && log.organization !== selectedAccount) return false
     if (methodFilters.size > 0 && !methodFilters.has(log.method)) return false
     if (statusFilter === "success" && log.status >= 400) return false
     if (statusFilter === "error" && log.status < 400) return false
     return true
   })
 
+  const displayLogs = useMemo(() => {
+    return [...filteredLogs].sort((a, b) => {
+      const aTime = timeToSeconds(a.time)
+      const bTime = timeToSeconds(b.time)
+      return timeSortDirection === "asc" ? aTime - bTime : bTime - aTime
+    })
+  }, [filteredLogs, timeSortDirection])
+
   const selectedLog: LogEntryDetail | null =
-    selectedLogIndex !== null ? filteredLogs[selectedLogIndex] : null
+    selectedLogIndex !== null ? displayLogs[selectedLogIndex] : null
 
   const handleRowClick = useCallback((index: number) => {
     setNavDirection(null)
@@ -325,6 +397,16 @@ export function LogsPage() {
     setSelectedLogIndex(null)
   }, [])
 
+  const handleAccountClick = useCallback((org: string) => {
+    setSelectedAccount((prev) => (prev === org ? null : org))
+    setSelectedLogIndex(null)
+  }, [])
+
+  const handleTimeSort = useCallback(() => {
+    setTimeSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))
+    setSelectedLogIndex(null)
+  }, [])
+
   return (
     <div className="flex h-screen bg-background">
       <SidebarNav />
@@ -333,35 +415,62 @@ export function LogsPage() {
           <Header />
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-5 pb-4">
             <div className="shrink-0">
-              <Toolbar />
-            </div>
-            <div className="shrink-0">
-              <ChartSection
-                bars={CHART.bars}
-                xLabels={CHART.xLabels}
-                selectedBarIndex={selectedBarIndex}
-                onBarClick={handleBarClick}
+              <Toolbar
+                showRelativeTime={showRelativeTime}
+                onToggleTimeDisplay={() => setShowRelativeTime((v) => !v)}
               />
             </div>
-            {selectedBar && (
-              <div className="shrink-0">
-                <FilterChip
-                  label={`${selectedBar.timeStart} – ${selectedBar.timeEnd}`}
-                  count={filteredLogs.length}
-                  totalCount={SAMPLE_LOGS.length}
-                  onClear={() => {
-                    setSelectedBarIndex(null)
-                    setSelectedLogIndex(null)
-                  }}
+            <div className="flex shrink-0 gap-4">
+              <div className="min-w-0 flex-1">
+                <ChartSection
+                  bars={CHART.bars}
+                  xLabels={CHART.xLabels}
+                  selectedBarIndex={selectedBarIndex}
+                  onBarClick={handleBarClick}
                 />
+              </div>
+              <div className="w-[38%] max-w-[50%] shrink-0">
+                <TopAccountsTable
+                  accounts={topAccounts}
+                  selectedAccount={selectedAccount}
+                  onAccountClick={handleAccountClick}
+                />
+              </div>
+            </div>
+            {(selectedBar || selectedAccount) && (
+              <div className="flex shrink-0 items-center gap-2">
+                {selectedBar && (
+                  <FilterChipPill
+                    icon={<Clock className="size-3" />}
+                    label={`${selectedBar.timeStart} – ${selectedBar.timeEnd}`}
+                    onClear={() => {
+                      setSelectedBarIndex(null)
+                      setSelectedLogIndex(null)
+                    }}
+                  />
+                )}
+                {selectedAccount && (
+                  <FilterChipPill
+                    icon={<Building2 className="size-3" />}
+                    label={selectedAccount}
+                    onClear={() => {
+                      setSelectedAccount(null)
+                      setSelectedLogIndex(null)
+                    }}
+                  />
+                )}
+                <span className="text-[12px] text-muted-foreground">
+                  Showing {filteredLogs.length} of {SAMPLE_LOGS.length} logs
+                </span>
               </div>
             )}
             <LogsTable
-              logs={filteredLogs}
+              logs={displayLogs}
               selectedIndex={selectedLogIndex}
               onRowClick={handleRowClick}
               showRelativeTime={showRelativeTime}
-              onToggleTimeDisplay={() => setShowRelativeTime((v) => !v)}
+              timeSortDirection={timeSortDirection}
+              onTimeSort={handleTimeSort}
               methodFilters={methodFilters}
               onToggleMethodFilter={toggleMethodFilter}
               statusFilter={statusFilter}
@@ -369,7 +478,7 @@ export function LogsPage() {
             />
             <div className="shrink-0">
               <Pagination
-                total={filteredLogs.length}
+                total={displayLogs.length}
                 page={1}
                 pageSize={25}
               />
@@ -401,7 +510,13 @@ function Header() {
   )
 }
 
-function Toolbar() {
+function Toolbar({
+  showRelativeTime,
+  onToggleTimeDisplay,
+}: {
+  showRelativeTime: boolean
+  onToggleTimeDisplay: () => void
+}) {
   return (
     <div className="flex items-center gap-2">
       <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5">
@@ -428,42 +543,149 @@ function Toolbar() {
         <span className="text-muted-foreground">End Time</span>
       </ToolbarButton>
 
-      <div className="ml-auto flex items-center gap-2">
-        <span className="text-[13px] font-medium text-foreground">
-          Hide Background Logs
-        </span>
-        <Toggle enabled={true} />
+      <div className="ml-auto flex items-center gap-3">
+        <div className="flex items-center rounded-lg border border-border bg-white p-0.5">
+          <button
+            onClick={() => showRelativeTime && onToggleTimeDisplay()}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium transition-colors",
+              !showRelativeTime
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <CalendarDays className="size-3" />
+            <span>Absolute</span>
+          </button>
+          <button
+            onClick={() => !showRelativeTime && onToggleTimeDisplay()}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium transition-colors",
+              showRelativeTime
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Clock className="size-3" />
+            <span>Relative</span>
+          </button>
+        </div>
+
+        <Divider />
+
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-medium text-foreground">
+            Hide Background Logs
+          </span>
+          <Toggle enabled={true} />
+        </div>
       </div>
     </div>
   )
 }
 
-function FilterChip({
+function FilterChipPill({
+  icon,
   label,
-  count,
-  totalCount,
   onClear,
 }: {
+  icon: React.ReactNode
   label: string
-  count: number
-  totalCount: number
   onClear: () => void
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center gap-1.5 rounded-full border border-success/30 bg-success/5 py-1 pl-2.5 pr-1.5 text-[12px]">
-        <Clock className="size-3 text-success-foreground" />
-        <span className="font-medium text-success-foreground">{label}</span>
-        <button
-          onClick={onClear}
-          className="ml-0.5 flex size-4 items-center justify-center rounded-full transition-colors hover:bg-success/20"
-        >
-          <X className="size-2.5 text-success-foreground" />
-        </button>
+    <div className="flex items-center gap-1.5 rounded-full border border-success/30 bg-success/5 py-1 pl-2.5 pr-1.5 text-[12px]">
+      <span className="text-success-foreground">{icon}</span>
+      <span className="font-medium text-success-foreground">{label}</span>
+      <button
+        onClick={onClear}
+        className="ml-0.5 flex size-4 items-center justify-center rounded-full transition-colors hover:bg-success/20"
+      >
+        <X className="size-2.5 text-success-foreground" />
+      </button>
+    </div>
+  )
+}
+
+function TopAccountsTable({
+  accounts,
+  selectedAccount,
+  onAccountClick,
+}: {
+  accounts: TopAccountEntry[]
+  selectedAccount: string | null
+  onAccountClick: (org: string) => void
+}) {
+  return (
+    <div className="flex h-full flex-col rounded-xl border border-border bg-[#f8f8f8]">
+      <div className="flex items-center justify-between px-5 py-3">
+        <span className="text-sm font-semibold text-foreground">
+          Top Accounts
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {accounts.reduce((s, a) => s + a.count, 0)} total
+        </span>
       </div>
-      <span className="text-[12px] text-muted-foreground">
-        Showing {count} of {totalCount} logs
-      </span>
+      <div className="mx-3 mb-3 flex-1 overflow-hidden rounded-lg bg-white">
+        <div className="flex items-center border-b border-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <span className="w-5 shrink-0">#</span>
+          <span className="min-w-0 flex-1 pl-2">Account</span>
+          <span className="w-[72px] shrink-0 text-right">Requests</span>
+          <span className="w-[72px] shrink-0 text-right">Avg Time</span>
+        </div>
+
+        {accounts.length === 0 ? (
+          <div className="flex items-center justify-center py-8 text-[12px] text-muted-foreground">
+            No data
+          </div>
+        ) : (
+          accounts.map((acc, i) => {
+            const isActive = selectedAccount === acc.organization
+            return (
+              <div
+                key={acc.organization}
+                role="button"
+                tabIndex={0}
+                aria-label={`${acc.organization} – ${acc.count} requests`}
+                onClick={() => onAccountClick(acc.organization)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    onAccountClick(acc.organization)
+                  }
+                }}
+                className={cn(
+                  "flex cursor-pointer items-center border-b border-border px-4 py-2.5 text-[13px] transition-colors last:border-b-0 hover:bg-muted/20",
+                  isActive && "bg-success/5",
+                )}
+              >
+                <span className="w-5 shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
+                  {i + 1}
+                </span>
+                <div className="flex min-w-0 flex-1 items-center gap-2 pl-2">
+                  <ProviderIcon type={acc.providerIcon} />
+                  <span
+                    className={cn(
+                      "truncate",
+                      isActive
+                        ? "font-medium text-success-foreground"
+                        : "text-foreground",
+                    )}
+                  >
+                    {acc.organization}
+                  </span>
+                </div>
+                <span className="w-[72px] shrink-0 text-right tabular-nums font-medium text-foreground">
+                  {acc.count}
+                </span>
+                <span className="w-[72px] shrink-0 text-right tabular-nums text-muted-foreground">
+                  {acc.avgDuration} ms
+                </span>
+              </div>
+            )
+          })
+        )}
+      </div>
     </div>
   )
 }
@@ -477,7 +699,8 @@ function LogsTable({
   selectedIndex,
   onRowClick,
   showRelativeTime,
-  onToggleTimeDisplay,
+  timeSortDirection,
+  onTimeSort,
   methodFilters,
   onToggleMethodFilter,
   statusFilter,
@@ -487,7 +710,8 @@ function LogsTable({
   selectedIndex: number | null
   onRowClick: (index: number) => void
   showRelativeTime: boolean
-  onToggleTimeDisplay: () => void
+  timeSortDirection: "asc" | "desc"
+  onTimeSort: () => void
   methodFilters: Set<HttpMethod>
   onToggleMethodFilter: (method: HttpMethod) => void
   statusFilter: "all" | "success" | "error"
@@ -499,8 +723,8 @@ function LogsTable({
         <div className="flex items-center py-3 text-[13px] font-semibold text-foreground">
           <TimeColumnHeader
             className="w-[150px]"
-            showRelativeTime={showRelativeTime}
-            onToggle={onToggleTimeDisplay}
+            sortDirection={timeSortDirection}
+            onSort={onTimeSort}
           />
           <SortHeader className="w-[190px]">Account</SortHeader>
           <SortHeader className="w-[140px]">Source</SortHeader>
@@ -546,13 +770,13 @@ function LogsTable({
                     content={
                       showRelativeTime
                         ? `${log.date} | ${log.time}`
-                        : formatRelativeTime(log.daysAgo)
+                        : formatRelativeTime(log)
                     }
                     side="bottom"
                   >
                     <span className="whitespace-nowrap text-muted-foreground">
                       {showRelativeTime ? (
-                        formatRelativeTime(log.daysAgo)
+                        formatRelativeTime(log)
                       ) : (
                         <>
                           {log.date}
@@ -672,36 +896,26 @@ function LogsTable({
 
 function TimeColumnHeader({
   className,
-  showRelativeTime,
-  onToggle,
+  sortDirection,
+  onSort,
 }: {
   className?: string
-  showRelativeTime: boolean
-  onToggle: () => void
+  sortDirection: "asc" | "desc"
+  onSort: () => void
 }) {
   return (
     <div className={cn("shrink-0 px-4", className)}>
-      <Tooltip
-        content={
-          showRelativeTime
-            ? "Switch to timestamps"
-            : "Switch to relative time"
-        }
-        side="bottom"
+      <button
+        onClick={onSort}
+        className="flex items-center gap-1.5 transition-colors hover:text-foreground"
       >
-        <button
-          onClick={onToggle}
-          className="flex items-center gap-1.5 transition-colors hover:text-foreground"
-        >
-          {showRelativeTime ? (
-            <Clock className="size-3 text-muted-foreground" />
-          ) : (
-            <CalendarDays className="size-3 text-muted-foreground" />
-          )}
-          <span>Requested</span>
+        <span>Requested</span>
+        {sortDirection === "asc" ? (
+          <ChevronUp className="size-3 text-muted-foreground" />
+        ) : (
           <ChevronDown className="size-3 text-muted-foreground" />
-        </button>
-      </Tooltip>
+        )}
+      </button>
     </div>
   )
 }
@@ -940,9 +1154,16 @@ function ToolbarButton({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Toggle({ enabled }: { enabled: boolean }) {
+function Toggle({
+  enabled,
+  onClick,
+}: {
+  enabled: boolean
+  onClick?: () => void
+}) {
   return (
     <button
+      onClick={onClick}
       className={cn(
         "flex h-[18px] w-[32px] items-center rounded-full p-[2px] transition-colors",
         enabled ? "justify-end bg-success" : "bg-[#e8e8e8]",
