@@ -20,6 +20,7 @@ type StatusCode = number
 export interface LogEntryDetail {
   date: string
   time: string
+  daysAgo: number
   provider: string
   providerVersion: string
   providerIcon: string

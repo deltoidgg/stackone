@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { cn } from "@workspace/ui/lib/utils"
 import {
   Search,
@@ -7,6 +7,10 @@ import {
   ChevronRight,
   MoreHorizontal,
   Plus,
+  Filter,
+  Clock,
+  CalendarDays,
+  Check,
 } from "lucide-react"
 import { SidebarNav } from "@/components/sidebar-nav"
 import { LogDetailPanel, type LogEntryDetail } from "@/components/log-detail-panel"
@@ -17,6 +21,7 @@ type StatusCode = number
 interface LogEntry {
   date: string
   time: string
+  daysAgo: number
   provider: string
   providerVersion: string
   providerIcon: string
@@ -35,21 +40,30 @@ interface LogEntry {
   responseStatus: StatusCode
 }
 
+function formatRelativeTime(daysAgo: number): string {
+  if (daysAgo === 0) return "Today"
+  if (daysAgo === 1) return "Yesterday"
+  if (daysAgo < 7) return `${daysAgo} days ago`
+  if (daysAgo < 14) return "1 week ago"
+  if (daysAgo < 30) return `${Math.floor(daysAgo / 7)} weeks ago`
+  return `${Math.floor(daysAgo / 30)} months ago`
+}
+
 const SAMPLE_LOGS: LogEntry[] = [
-  { date: "Aug 13", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/employees.applic...", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/hris/employees", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 12", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "224 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 09", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Key", sourceIcon: "key", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
-  { date: "Aug 08", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "205 ms", status: 401, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
-  { date: "Aug 06", time: "21:05:19.123", provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 13", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 12", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 09", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
-  { date: "Aug 06", time: "21:05:19.123", provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "orange", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 13", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 12", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 09", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
-  { date: "Aug 08", time: "21:05:19.123", provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/appl...", duration: "205 ms", status: 401, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
-  { date: "Aug 06", time: "21:05:19.123", provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/appl...", duration: "154 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 13", time: "21:05:19.123", daysAgo: 0, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/employees/applications/candidates", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/hris/employees", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 12", time: "21:05:19.123", daysAgo: 1, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "224 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 09", time: "21:05:19.123", daysAgo: 4, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Key", sourceIcon: "key", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
+  { date: "Aug 08", time: "21:05:19.123", daysAgo: 5, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "205 ms", status: 401, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
+  { date: "Aug 06", time: "21:05:19.123", daysAgo: 7, provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 13", time: "21:05:19.123", daysAgo: 0, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 12", time: "21:05:19.123", daysAgo: 1, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 09", time: "21:05:19.123", daysAgo: 4, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
+  { date: "Aug 06", time: "21:05:19.123", daysAgo: 7, provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "orange", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 13", time: "21:05:19.123", daysAgo: 0, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 12", time: "21:05:19.123", daysAgo: 1, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
+  { date: "Aug 09", time: "21:05:19.123", daysAgo: 4, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
+  { date: "Aug 08", time: "21:05:19.123", daysAgo: 5, provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "205 ms", status: 401, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
+  { date: "Aug 06", time: "21:05:19.123", daysAgo: 7, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "154 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
 ]
 
 const TIME_LABELS = [
@@ -82,10 +96,20 @@ const CHART = generateChartData()
 export function LogsPage() {
   const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null)
   const [navDirection, setNavDirection] = useState<"prev" | "next" | null>(null)
+  const [showRelativeTime, setShowRelativeTime] = useState(true)
+  const [methodFilters, setMethodFilters] = useState<Set<HttpMethod>>(new Set())
+  const [statusFilter, setStatusFilter] = useState<"all" | "success" | "error">("all")
   const panelOpen = selectedLogIndex !== null
 
+  const filteredLogs = SAMPLE_LOGS.filter((log) => {
+    if (methodFilters.size > 0 && !methodFilters.has(log.method)) return false
+    if (statusFilter === "success" && log.status >= 400) return false
+    if (statusFilter === "error" && log.status < 400) return false
+    return true
+  })
+
   const selectedLog: LogEntryDetail | null =
-    selectedLogIndex !== null ? SAMPLE_LOGS[selectedLogIndex] : null
+    selectedLogIndex !== null ? filteredLogs[selectedLogIndex] : null
 
   const handleRowClick = useCallback((index: number) => {
     setNavDirection(null)
@@ -103,10 +127,10 @@ export function LogsPage() {
       setSelectedLogIndex((prev) => {
         if (prev === null) return null
         if (direction === "prev") return Math.max(0, prev - 1)
-        return Math.min(SAMPLE_LOGS.length - 1, prev + 1)
+        return Math.min(filteredLogs.length - 1, prev + 1)
       })
     },
-    []
+    [filteredLogs.length]
   )
 
   useEffect(() => {
@@ -127,6 +151,21 @@ export function LogsPage() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [panelOpen, handleClose, handleNavigate])
 
+  const toggleMethodFilter = useCallback((method: HttpMethod) => {
+    setMethodFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(method)) next.delete(method)
+      else next.add(method)
+      return next
+    })
+    setSelectedLogIndex(null)
+  }, [])
+
+  const handleStatusFilter = useCallback((filter: "all" | "success" | "error") => {
+    setStatusFilter(filter)
+    setSelectedLogIndex(null)
+  }, [])
+
   return (
     <div className="flex h-screen bg-background">
       <SidebarNav />
@@ -137,9 +176,15 @@ export function LogsPage() {
             <div className="shrink-0"><Toolbar /></div>
             <div className="shrink-0"><ChartSection /></div>
             <LogsTable
-              logs={SAMPLE_LOGS}
+              logs={filteredLogs}
               selectedIndex={selectedLogIndex}
               onRowClick={handleRowClick}
+              showRelativeTime={showRelativeTime}
+              onToggleTimeDisplay={() => setShowRelativeTime((v) => !v)}
+              methodFilters={methodFilters}
+              onToggleMethodFilter={toggleMethodFilter}
+              statusFilter={statusFilter}
+              onStatusFilter={handleStatusFilter}
             />
             <div className="shrink-0"><Pagination total={34} page={1} pageSize={25} /></div>
           </div>
@@ -350,46 +395,88 @@ function LogsTable({
   logs,
   selectedIndex,
   onRowClick,
+  showRelativeTime,
+  onToggleTimeDisplay,
+  methodFilters,
+  onToggleMethodFilter,
+  statusFilter,
+  onStatusFilter,
 }: {
   logs: LogEntry[]
   selectedIndex: number | null
   onRowClick: (index: number) => void
+  showRelativeTime: boolean
+  onToggleTimeDisplay: () => void
+  methodFilters: Set<HttpMethod>
+  onToggleMethodFilter: (method: HttpMethod) => void
+  statusFilter: "all" | "success" | "error"
+  onStatusFilter: (filter: "all" | "success" | "error") => void
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-[#f8f8f8]">
-      <div className="shrink-0 overflow-x-auto px-3">
-        <div className="flex min-w-[1100px] items-center py-3 text-[13px] font-semibold text-foreground">
-          <SortHeader className="w-[170px]">Requested</SortHeader>
+      <div className="shrink-0 px-3">
+        <div className="flex items-center py-3 text-[13px] font-semibold text-foreground">
+          <TimeColumnHeader
+            className="w-[150px]"
+            showRelativeTime={showRelativeTime}
+            onToggle={onToggleTimeDisplay}
+          />
           <SortHeader className="w-[190px]">Account</SortHeader>
-          <SortHeader className="w-[160px]">Source</SortHeader>
-          <SortHeader className="min-w-0 flex-1">Request</SortHeader>
+          <SortHeader className="w-[140px]">Source</SortHeader>
+          <MethodFilterHeader
+            className="min-w-0 flex-1"
+            methodFilters={methodFilters}
+            onToggle={onToggleMethodFilter}
+          />
           <div className="flex w-[32px] shrink-0 items-center justify-center">
             <button className="flex size-5 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted">
               <Plus className="size-3" />
             </button>
           </div>
           <SortHeader className="w-[90px]">Duration</SortHeader>
-          <SortHeader className="w-[70px]">Status</SortHeader>
+          <StatusFilterHeader
+            className="w-[80px]"
+            statusFilter={statusFilter}
+            onFilter={onStatusFilter}
+          />
           <div className="w-[90px] shrink-0" />
         </div>
       </div>
 
       <div className="mx-3 mb-3 min-h-0 flex-1 overflow-y-auto rounded-lg bg-white">
-        <div className="min-w-[1100px]">
-          {logs.map((log, i) => (
-            <div
-              key={i}
-              onClick={() => onRowClick(i)}
-              className={cn(
-                "group flex cursor-pointer items-center border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-muted/20",
-                selectedIndex === i && "bg-success/5"
-              )}
-            >
-                <div className="w-[170px] shrink-0 px-4 py-2.5">
-                  <span className="whitespace-nowrap text-muted-foreground">
-                    {log.date}
-                    <span className="mx-2 text-muted-foreground/30">|</span>
-                    {log.time}
+        <div className="min-w-[1000px]">
+          {logs.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-[13px] text-muted-foreground">
+              No logs match the current filters
+            </div>
+          ) : (
+            logs.map((log, i) => (
+              <div
+                key={i}
+                onClick={() => onRowClick(i)}
+                className={cn(
+                  "group flex cursor-pointer items-center border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-muted/20",
+                  selectedIndex === i && "bg-success/5"
+                )}
+              >
+                <div className="w-[150px] shrink-0 px-4 py-2.5">
+                  <span
+                    className="whitespace-nowrap text-muted-foreground"
+                    title={
+                      showRelativeTime
+                        ? `${log.date} | ${log.time}`
+                        : formatRelativeTime(log.daysAgo)
+                    }
+                  >
+                    {showRelativeTime ? (
+                      formatRelativeTime(log.daysAgo)
+                    ) : (
+                      <>
+                        {log.date}
+                        <span className="mx-1.5 text-muted-foreground/30">|</span>
+                        {log.time}
+                      </>
+                    )}
                   </span>
                 </div>
                 <div className="w-[190px] shrink-0 px-4 py-2.5">
@@ -400,7 +487,7 @@ function LogsTable({
                     </span>
                   </div>
                 </div>
-                <div className="w-[160px] shrink-0 px-4 py-2.5">
+                <div className="w-[140px] shrink-0 px-4 py-2.5">
                   <div className="flex items-center gap-2">
                     <SourceIcon />
                     <span className="truncate text-muted-foreground">
@@ -409,17 +496,17 @@ function LogsTable({
                   </div>
                 </div>
                 <div className="min-w-0 flex-1 px-4 py-2.5">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 overflow-hidden">
                     <MethodBadge method={log.method} />
-                    <span className="text-muted-foreground">{log.resource}</span>
-                    <span className="truncate text-muted-foreground/60">{log.path}</span>
+                    <span className="shrink-0 text-muted-foreground">{log.resource}</span>
+                    <span className="truncate text-muted-foreground/50">{log.path}</span>
                   </div>
                 </div>
                 <div className="w-[32px] shrink-0" />
                 <div className="w-[90px] shrink-0 px-4 py-2.5">
                   <span className="text-muted-foreground">{log.duration}</span>
                 </div>
-                <div className="w-[70px] shrink-0 px-4 py-2.5">
+                <div className="w-[80px] shrink-0 px-4 py-2.5">
                   <StatusBadge code={log.status} />
                 </div>
                 <div className="flex w-[90px] shrink-0 items-center justify-end gap-2 px-3 py-2.5">
@@ -433,9 +520,169 @@ function LogsTable({
                   <ChevronRight className="size-3.5 text-muted-foreground/40" />
                 </div>
               </div>
-          ))}
-          </div>
+            ))
+          )}
+        </div>
       </div>
+    </div>
+  )
+}
+
+function TimeColumnHeader({
+  className,
+  showRelativeTime,
+  onToggle,
+}: {
+  className?: string
+  showRelativeTime: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className={cn("shrink-0 px-4", className)}>
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+        title={showRelativeTime ? "Switch to timestamps" : "Switch to relative time"}
+      >
+        {showRelativeTime ? (
+          <Clock className="size-3 text-muted-foreground" />
+        ) : (
+          <CalendarDays className="size-3 text-muted-foreground" />
+        )}
+        <span>Requested</span>
+        <ChevronDown className="size-3 text-muted-foreground" />
+      </button>
+    </div>
+  )
+}
+
+function MethodFilterHeader({
+  className,
+  methodFilters,
+  onToggle,
+}: {
+  className?: string
+  methodFilters: Set<HttpMethod>
+  onToggle: (method: HttpMethod) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const hasFilter = methodFilters.size > 0
+  const methods: HttpMethod[] = ["GET", "POST", "PUT", "DELETE", "PATCH"]
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    if (open) document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [open])
+
+  return (
+    <div ref={ref} className={cn("relative shrink-0 px-4", className)}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1"
+      >
+        <span>Request</span>
+        {hasFilter ? (
+          <Filter className="size-3 text-success-foreground" />
+        ) : (
+          <ChevronDown className="size-3 text-muted-foreground" />
+        )}
+      </button>
+      {open && (
+        <div className="absolute top-full left-4 z-30 mt-1 w-[140px] rounded-lg border border-border bg-white py-1 shadow-lg">
+          {methods.map((m) => (
+            <button
+              key={m}
+              onClick={() => onToggle(m)}
+              className="flex w-full items-center justify-between px-3 py-1.5 text-[12px] transition-colors hover:bg-muted/50"
+            >
+              <div className="flex items-center gap-2">
+                <MethodBadge method={m} />
+              </div>
+              {methodFilters.has(m) && (
+                <Check className="size-3 text-success-foreground" />
+              )}
+            </button>
+          ))}
+          {hasFilter && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <button
+                onClick={() => {
+                  methods.forEach((m) => { if (methodFilters.has(m)) onToggle(m) })
+                  setOpen(false)
+                }}
+                className="w-full px-3 py-1.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-muted/50"
+              >
+                Clear filters
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatusFilterHeader({
+  className,
+  statusFilter,
+  onFilter,
+}: {
+  className?: string
+  statusFilter: "all" | "success" | "error"
+  onFilter: (filter: "all" | "success" | "error") => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const hasFilter = statusFilter !== "all"
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    if (open) document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [open])
+
+  const options: { value: "all" | "success" | "error"; label: string }[] = [
+    { value: "all", label: "All statuses" },
+    { value: "success", label: "Success (2xx)" },
+    { value: "error", label: "Errors (4xx+)" },
+  ]
+
+  return (
+    <div ref={ref} className={cn("relative shrink-0 px-4", className)}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1"
+      >
+        <span>Status</span>
+        {hasFilter ? (
+          <Filter className="size-3 text-success-foreground" />
+        ) : (
+          <ChevronDown className="size-3 text-muted-foreground" />
+        )}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 z-30 mt-1 w-[150px] rounded-lg border border-border bg-white py-1 shadow-lg">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { onFilter(opt.value); setOpen(false) }}
+              className="flex w-full items-center justify-between px-3 py-1.5 text-[12px] transition-colors hover:bg-muted/50"
+            >
+              <span>{opt.label}</span>
+              {statusFilter === opt.value && (
+                <Check className="size-3 text-success-foreground" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -460,7 +707,7 @@ function SortHeader({
 function MethodBadge({ method }: { method: HttpMethod }) {
   const colors: Record<HttpMethod, string> = {
     GET: "bg-success/10 text-success-foreground",
-    POST: "bg-[#ef3737]/10 text-[#ef3737]",
+    POST: "bg-[#3b82f6]/10 text-[#3b82f6]",
     PUT: "bg-[#f59e0b]/10 text-[#b45309]",
     DELETE: "bg-[#ef3737]/10 text-[#ef3737]",
     PATCH: "bg-[#8b5cf6]/10 text-[#6d28d9]",
@@ -484,8 +731,10 @@ function StatusBadge({ code }: { code: StatusCode }) {
   return (
     <span
       className={cn(
-        "text-[13px] font-medium",
-        isSuccess ? "text-success-foreground" : "text-[#ef3737]"
+        "inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[11px] font-semibold",
+        isSuccess
+          ? "bg-success/10 text-success-foreground"
+          : "bg-[#ef3737]/10 text-[#ef3737]"
       )}
     >
       {code}
