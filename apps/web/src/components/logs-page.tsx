@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { cn } from "@workspace/ui/lib/utils"
+import { Tooltip } from "@workspace/ui/components/tooltip"
 import {
   Search,
   ChevronDown,
@@ -11,11 +12,17 @@ import {
   Clock,
   CalendarDays,
   Check,
+  X,
 } from "lucide-react"
 import { SidebarNav } from "@/components/sidebar-nav"
 import { LogDetailPanel, type LogEntryDetail } from "@/components/log-detail-panel"
+import {
+  ChartSection,
+  type ChartBarData,
+  type ChartXLabel,
+  type HttpMethod,
+} from "@/components/chart-section"
 
-type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
 type StatusCode = number
 
 interface LogEntry {
@@ -40,6 +47,180 @@ interface LogEntry {
   responseStatus: StatusCode
 }
 
+const STATUS_TEXT: Record<number, string> = {
+  200: "OK – Request succeeded",
+  201: "Created – Resource created",
+  204: "No Content",
+  400: "Bad Request – Invalid parameters",
+  401: "Unauthorized – Authentication required",
+  403: "Forbidden – Insufficient permissions",
+  404: "Not Found – Resource does not exist",
+  429: "Too Many Requests – Rate limited",
+  500: "Internal Server Error",
+  502: "Bad Gateway",
+  503: "Service Unavailable",
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic data generation
+// ---------------------------------------------------------------------------
+
+function mulberry32(seed: number) {
+  return function () {
+    seed |= 0
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const CHART_START_SECONDS = 15 * 3600 + 10 * 60 // 15:10:00
+const CHART_BUCKET_SECONDS = 15
+const CHART_TOTAL_BARS = 40
+
+function formatSecondsToTime(totalSec: number): string {
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
+function timeToSeconds(time: string): number {
+  const parts = time.split(":")
+  const h = parseInt(parts[0])
+  const m = parseInt(parts[1])
+  const s = parseFloat(parts[2])
+  return h * 3600 + m * 60 + s
+}
+
+const PROVIDERS = [
+  { name: "Atlas", icon: "green", version: "V1.0.0" },
+  { name: "Humaans", icon: "red", version: "V1.0.0" },
+  { name: "BambooHR", icon: "blue", version: "V2.1.0" },
+  { name: "Workday", icon: "dark", version: "V1.2.0" },
+  { name: "Personio", icon: "orange", version: "V1.0.0" },
+]
+
+const ENDPOINTS: { method: HttpMethod; resource: string; path: string }[] = [
+  { method: "GET", resource: "List Employees", path: "/unified/hris/employees" },
+  { method: "GET", resource: "Get Employee", path: "/unified/hris/employees/{id}" },
+  { method: "POST", resource: "Create Employee", path: "/unified/hris/employees" },
+  { method: "GET", resource: "List Applications", path: "/unified/ats/applications" },
+  { method: "POST", resource: "Create Application", path: "/unified/ats/applications" },
+  { method: "PUT", resource: "Update Job", path: "/unified/ats/jobs/{id}" },
+  { method: "GET", resource: "List Jobs", path: "/unified/ats/jobs" },
+  { method: "DELETE", resource: "Delete Candidate", path: "/unified/ats/candidates/{id}" },
+  { method: "PATCH", resource: "Update Employee", path: "/unified/hris/employees/{id}" },
+  { method: "GET", resource: "List Contacts", path: "/unified/crm/contacts" },
+  { method: "POST", resource: "Create Contact", path: "/unified/crm/contacts" },
+  { method: "GET", resource: "List Accounts", path: "/unified/crm/accounts" },
+]
+
+const SOURCES = [
+  { name: "Test Connection", icon: "link" },
+  { name: "Identifier 1", icon: "lock" },
+  { name: "API Key", icon: "key" },
+  { name: "Refresh Token", icon: "refresh" },
+  { name: "Test Mapping", icon: "map" },
+  { name: "Webhook", icon: "link" },
+]
+
+const ORGS = [
+  "Sample Organization",
+  "Acme Corp",
+  "TechFlow Inc",
+  "DataSync Labs",
+]
+
+const STATUS_POOL = [
+  200, 200, 200, 200, 200, 200, 201, 201, 204, 400, 401, 403, 404, 500,
+]
+
+function generateLogs(): LogEntry[] {
+  const rng = mulberry32(42)
+  const pick = <T,>(arr: T[]): T => arr[Math.floor(rng() * arr.length)]
+  const logs: LogEntry[] = []
+  const totalSeconds = CHART_TOTAL_BARS * CHART_BUCKET_SECONDS
+
+  for (let i = 0; i < 120; i++) {
+    const provider = pick(PROVIDERS)
+    const endpoint = pick(ENDPOINTS)
+    const source = pick(SOURCES)
+    const status = pick(STATUS_POOL)
+
+    const offsetSec = rng() * totalSeconds
+    const absSeconds = CHART_START_SECONDS + offsetSec
+    const h = Math.floor(absSeconds / 3600)
+    const m = Math.floor((absSeconds % 3600) / 60)
+    const s = Math.floor(absSeconds % 60)
+    const ms = Math.floor(rng() * 1000)
+    const time = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`
+
+    logs.push({
+      date: "Mar 10",
+      time,
+      daysAgo: 0,
+      provider: provider.name,
+      providerVersion: provider.version,
+      providerIcon: provider.icon,
+      originOwner: "StackOne Interviews",
+      source: source.name,
+      sourceIcon: source.icon,
+      method: endpoint.method,
+      resource: endpoint.resource,
+      path: endpoint.path,
+      duration: `${80 + Math.floor(rng() * 850)} ms`,
+      status,
+      count: Math.floor(rng() * 6),
+      organization: pick(ORGS),
+      url: `https://api.stackone.com${endpoint.path}`,
+      expires: `${1 + Math.floor(rng() * 6)} Days`,
+      responseStatus: status,
+    })
+  }
+
+  return logs.sort((a, b) => a.time.localeCompare(b.time))
+}
+
+function generateChartData(): { bars: ChartBarData[]; xLabels: ChartXLabel[] } {
+  const rng = mulberry32(7777)
+  const bars: ChartBarData[] = []
+
+  for (let i = 0; i < CHART_TOTAL_BARS; i++) {
+    const startSec = CHART_START_SECONDS + i * CHART_BUCKET_SECONDS
+    const endSec = startSec + CHART_BUCKET_SECONDS
+
+    const activity = 0.5 + rng() * 1.0
+    const spike = rng() > 0.9 ? 1.5 + rng() * 2 : 1
+    const base = Math.floor(150 * activity * spike)
+    const errRate = 0.03 + rng() * 0.12
+
+    bars.push({
+      timeStart: formatSecondsToTime(startSec),
+      timeEnd: formatSecondsToTime(endSec),
+      success: base,
+      error: Math.max(3, Math.floor(base * errRate)),
+    })
+  }
+
+  const xLabels: ChartXLabel[] = []
+  for (let i = 0; i < CHART_TOTAL_BARS; i += 8) {
+    const startSec = CHART_START_SECONDS + i * CHART_BUCKET_SECONDS
+    const h = Math.floor(startSec / 3600)
+    const m = Math.floor((startSec % 3600) / 60)
+    xLabels.push({
+      barIndex: i,
+      label: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+    })
+  }
+
+  return { bars, xLabels }
+}
+
+const SAMPLE_LOGS = generateLogs()
+const CHART = generateChartData()
+
 function formatRelativeTime(daysAgo: number): string {
   if (daysAgo === 0) return "Today"
   if (daysAgo === 1) return "Yesterday"
@@ -49,59 +230,29 @@ function formatRelativeTime(daysAgo: number): string {
   return `${Math.floor(daysAgo / 30)} months ago`
 }
 
-const SAMPLE_LOGS: LogEntry[] = [
-  { date: "Aug 13", time: "21:05:19.123", daysAgo: 0, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/employees/applications/candidates", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/hris/employees", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 12", time: "21:05:19.123", daysAgo: 1, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "224 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 09", time: "21:05:19.123", daysAgo: 4, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Key", sourceIcon: "key", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
-  { date: "Aug 08", time: "21:05:19.123", daysAgo: 5, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "205 ms", status: 401, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
-  { date: "Aug 06", time: "21:05:19.123", daysAgo: 7, provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 13", time: "21:05:19.123", daysAgo: 0, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 12", time: "21:05:19.123", daysAgo: 1, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 09", time: "21:05:19.123", daysAgo: 4, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
-  { date: "Aug 06", time: "21:05:19.123", daysAgo: 7, provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "orange", originOwner: "StackOne Interviews", source: "Refresh Token", sourceIcon: "refresh", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "154 ms", status: 200, count: 2, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 13", time: "21:05:19.123", daysAgo: 0, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "583 ms", status: 200, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 12", time: "21:05:19.123", daysAgo: 1, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "blue", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "224 ms", status: 200, count: 5, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-  { date: "Aug 09", time: "21:05:19.123", daysAgo: 4, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "dark", originOwner: "StackOne Interviews", source: "Test Mapping", sourceIcon: "map", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "247 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "3 Days", responseStatus: 200 },
-  { date: "Aug 08", time: "21:05:19.123", daysAgo: 5, provider: "Humaans", providerVersion: "V1.0.0", providerIcon: "red", originOwner: "StackOne Interviews", source: "Identifier 1", sourceIcon: "lock", method: "POST", resource: "List Employees", path: "/unified/ats/applications", duration: "205 ms", status: 401, count: 0, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "2 Days", responseStatus: 401 },
-  { date: "Aug 06", time: "21:05:19.123", daysAgo: 7, provider: "Atlas", providerVersion: "V1.0.0", providerIcon: "green", originOwner: "StackOne Interviews", source: "Test Connection", sourceIcon: "link", method: "GET", resource: "List Employees", path: "/unified/ats/applications", duration: "154 ms", status: 200, count: 3, organization: "Sample Organization", url: "https://api.stackone.com/unified/ats/applications", expires: "6 Days", responseStatus: 200 },
-]
-
-const TIME_LABELS = [
-  "15:10", "15:11", "15:12", "15:13", "15:14",
-  "15:15", "15:16", "15:17", "15:18",
-]
-
-const BARS_PER_GROUP = 9
-
-function generateChartData() {
-  const success: number[] = []
-  const error: number[] = []
-  for (let g = 0; g < TIME_LABELS.length; g++) {
-    for (let b = 0; b < BARS_PER_GROUP; b++) {
-      const base = 150 + Math.floor(Math.random() * 250)
-      const spike = Math.random() > 0.85 ? Math.floor(Math.random() * 600) : 0
-      success.push(base + spike)
-      error.push(
-        Math.random() > 0.7
-          ? 30 + Math.floor(Math.random() * 120)
-          : 10 + Math.floor(Math.random() * 40)
-      )
-    }
-  }
-  return { success, error }
-}
-
-const CHART = generateChartData()
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export function LogsPage() {
   const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null)
   const [navDirection, setNavDirection] = useState<"prev" | "next" | null>(null)
-  const [showRelativeTime, setShowRelativeTime] = useState(true)
+  const [showRelativeTime, setShowRelativeTime] = useState(false)
   const [methodFilters, setMethodFilters] = useState<Set<HttpMethod>>(new Set())
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "error">("all")
+  const [selectedBarIndex, setSelectedBarIndex] = useState<number | null>(null)
+
   const panelOpen = selectedLogIndex !== null
+  const selectedBar =
+    selectedBarIndex !== null ? CHART.bars[selectedBarIndex] : null
 
   const filteredLogs = SAMPLE_LOGS.filter((log) => {
+    if (selectedBar) {
+      const logSec = timeToSeconds(log.time)
+      const startSec = timeToSeconds(selectedBar.timeStart)
+      const endSec = timeToSeconds(selectedBar.timeEnd)
+      if (logSec < startSec || logSec >= endSec) return false
+    }
     if (methodFilters.size > 0 && !methodFilters.has(log.method)) return false
     if (statusFilter === "success" && log.status >= 400) return false
     if (statusFilter === "error" && log.status < 400) return false
@@ -130,7 +281,7 @@ export function LogsPage() {
         return Math.min(filteredLogs.length - 1, prev + 1)
       })
     },
-    [filteredLogs.length]
+    [filteredLogs.length],
   )
 
   useEffect(() => {
@@ -161,8 +312,16 @@ export function LogsPage() {
     setSelectedLogIndex(null)
   }, [])
 
-  const handleStatusFilter = useCallback((filter: "all" | "success" | "error") => {
-    setStatusFilter(filter)
+  const handleStatusFilter = useCallback(
+    (filter: "all" | "success" | "error") => {
+      setStatusFilter(filter)
+      setSelectedLogIndex(null)
+    },
+    [],
+  )
+
+  const handleBarClick = useCallback((index: number) => {
+    setSelectedBarIndex((prev) => (prev === index ? null : index))
     setSelectedLogIndex(null)
   }, [])
 
@@ -173,8 +332,30 @@ export function LogsPage() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
           <Header />
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-5 pb-4">
-            <div className="shrink-0"><Toolbar /></div>
-            <div className="shrink-0"><ChartSection /></div>
+            <div className="shrink-0">
+              <Toolbar />
+            </div>
+            <div className="shrink-0">
+              <ChartSection
+                bars={CHART.bars}
+                xLabels={CHART.xLabels}
+                selectedBarIndex={selectedBarIndex}
+                onBarClick={handleBarClick}
+              />
+            </div>
+            {selectedBar && (
+              <div className="shrink-0">
+                <FilterChip
+                  label={`${selectedBar.timeStart} – ${selectedBar.timeEnd}`}
+                  count={filteredLogs.length}
+                  totalCount={SAMPLE_LOGS.length}
+                  onClear={() => {
+                    setSelectedBarIndex(null)
+                    setSelectedLogIndex(null)
+                  }}
+                />
+              </div>
+            )}
             <LogsTable
               logs={filteredLogs}
               selectedIndex={selectedLogIndex}
@@ -186,7 +367,13 @@ export function LogsPage() {
               statusFilter={statusFilter}
               onStatusFilter={handleStatusFilter}
             />
-            <div className="shrink-0"><Pagination total={34} page={1} pageSize={25} /></div>
+            <div className="shrink-0">
+              <Pagination
+                total={filteredLogs.length}
+                page={1}
+                pageSize={25}
+              />
+            </div>
           </div>
         </div>
         <LogDetailPanel
@@ -201,6 +388,10 @@ export function LogsPage() {
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
 
 function Header() {
   return (
@@ -247,149 +438,39 @@ function Toolbar() {
   )
 }
 
-function ToolbarButton({ children }: { children: React.ReactNode }) {
-  return (
-    <button className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted">
-      {children}
-    </button>
-  )
-}
-
-function Toggle({ enabled }: { enabled: boolean }) {
-  return (
-    <button
-      className={cn(
-        "flex h-[18px] w-[32px] items-center rounded-full p-[2px] transition-colors",
-        enabled ? "justify-end bg-success" : "bg-[#e8e8e8]"
-      )}
-    >
-      <div className="size-[14px] rounded-full bg-white shadow-[0_2px_4px_rgba(0,35,11,0.2)]" />
-    </button>
-  )
-}
-
-function Divider() {
-  return <div className="h-4 w-px shrink-0 bg-border" />
-}
-
-function ChartSection() {
-  const gridLines = [0, 1000, 2000]
-  const yMax = 2400
-
-  return (
-    <div className="rounded-xl border border-border bg-[#f8f8f8]">
-      <div className="flex items-center justify-between px-5 py-3">
-        <span className="text-sm font-semibold text-foreground">
-          API Requests
-        </span>
-        <div className="flex items-center gap-5">
-          <StatItem
-            dotColor="bg-muted-foreground/40"
-            label="Total"
-            value="580,000"
-            trend="— 0%"
-            trendColor="text-muted-foreground"
-          />
-          <StatItem
-            dotColor="bg-success"
-            label="Success"
-            value="580,000"
-            trend="↑ 2%"
-            trendColor="text-success-foreground"
-          />
-          <StatItem
-            dotColor="bg-[#ef3737]/70"
-            label="Error"
-            value="20,000"
-            trend="↓ 2%"
-            trendColor="text-[#ef3737]"
-          />
-        </div>
-      </div>
-
-      <div className="mx-3 mb-3 rounded-lg bg-white">
-        <div className="flex">
-          <div className="flex w-8 shrink-0 flex-col-reverse justify-between py-4 pr-1.5 text-right text-[10px] text-muted-foreground">
-            {gridLines.map((v) => (
-              <span key={v}>
-                {v >= 1000 ? `${v / 1000}k` : `${v}k`}
-              </span>
-            ))}
-          </div>
-
-          <div className="relative min-w-0 flex-1 py-4 pr-4">
-            {gridLines.map((v) => (
-              <div
-                key={v}
-                className="pointer-events-none absolute left-0 right-4 border-t border-dashed border-border/60"
-                style={{ bottom: `${(v / yMax) * 100}%` }}
-              />
-            ))}
-
-            <div className="relative flex h-[160px] items-end gap-px">
-              {CHART.success.map((sVal, i) => {
-                const eVal = CHART.error[i]
-                const ePct = (eVal / yMax) * 100
-                const sPct = (sVal / yMax) * 100
-
-                return (
-                  <div
-                    key={i}
-                    className="flex min-w-0 flex-1 flex-col justify-end"
-                    style={{ height: "100%" }}
-                  >
-                    <div
-                      className="w-full rounded-t-[1px] bg-[#ef3737]/50"
-                      style={{ height: `${ePct}%` }}
-                    />
-                    <div
-                      className="w-full bg-success/60"
-                      style={{ height: `${sPct}%` }}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="mt-2 flex">
-              {TIME_LABELS.map((label, gi) => (
-                <div
-                  key={gi}
-                  className="flex-1 text-center text-[10px] text-muted-foreground"
-                >
-                  {label}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function StatItem({
-  dotColor,
+function FilterChip({
   label,
-  value,
-  trend,
-  trendColor,
+  count,
+  totalCount,
+  onClear,
 }: {
-  dotColor: string
   label: string
-  value: string
-  trend: string
-  trendColor: string
+  count: number
+  totalCount: number
+  onClear: () => void
 }) {
   return (
-    <div className="flex items-center gap-1.5 text-[12px]">
-      <span className={cn("size-2 rounded-full", dotColor)} />
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold text-foreground">{value}</span>
-      <span className={cn("font-medium", trendColor)}>{trend}</span>
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 rounded-full border border-success/30 bg-success/5 py-1 pl-2.5 pr-1.5 text-[12px]">
+        <Clock className="size-3 text-success-foreground" />
+        <span className="font-medium text-success-foreground">{label}</span>
+        <button
+          onClick={onClear}
+          className="ml-0.5 flex size-4 items-center justify-center rounded-full transition-colors hover:bg-success/20"
+        >
+          <X className="size-2.5 text-success-foreground" />
+        </button>
+      </div>
+      <span className="text-[12px] text-muted-foreground">
+        Showing {count} of {totalCount} logs
+      </span>
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------------
 
 function LogsTable({
   logs,
@@ -456,37 +537,58 @@ function LogsTable({
                 onClick={() => onRowClick(i)}
                 className={cn(
                   "group flex cursor-pointer items-center border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-muted/20",
-                  selectedIndex === i && "bg-success/5"
+                  selectedIndex === i && "bg-success/5",
                 )}
               >
+                {/* Time */}
                 <div className="w-[150px] shrink-0 px-4 py-2.5">
-                  <span
-                    className="whitespace-nowrap text-muted-foreground"
-                    title={
+                  <Tooltip
+                    content={
                       showRelativeTime
                         ? `${log.date} | ${log.time}`
                         : formatRelativeTime(log.daysAgo)
                     }
+                    side="bottom"
                   >
-                    {showRelativeTime ? (
-                      formatRelativeTime(log.daysAgo)
-                    ) : (
-                      <>
-                        {log.date}
-                        <span className="mx-1.5 text-muted-foreground/30">|</span>
-                        {log.time}
-                      </>
-                    )}
-                  </span>
-                </div>
-                <div className="w-[190px] shrink-0 px-4 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <ProviderIcon type={log.providerIcon} />
-                    <span className="truncate text-muted-foreground">
-                      {log.organization}
+                    <span className="whitespace-nowrap text-muted-foreground">
+                      {showRelativeTime ? (
+                        formatRelativeTime(log.daysAgo)
+                      ) : (
+                        <>
+                          {log.date}
+                          <span className="mx-1.5 text-muted-foreground/30">
+                            |
+                          </span>
+                          {log.time}
+                        </>
+                      )}
                     </span>
-                  </div>
+                  </Tooltip>
                 </div>
+
+                {/* Account – tooltip reveals provider + version */}
+                <div className="w-[190px] shrink-0 px-4 py-2.5">
+                  <Tooltip
+                    content={
+                      <span>
+                        {log.provider}{" "}
+                        <span className="text-white/50">
+                          {log.providerVersion}
+                        </span>
+                      </span>
+                    }
+                    side="bottom"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ProviderIcon type={log.providerIcon} />
+                      <span className="truncate text-muted-foreground">
+                        {log.organization}
+                      </span>
+                    </div>
+                  </Tooltip>
+                </div>
+
+                {/* Source */}
                 <div className="w-[140px] shrink-0 px-4 py-2.5">
                   <div className="flex items-center gap-2">
                     <SourceIcon />
@@ -495,22 +597,58 @@ function LogsTable({
                     </span>
                   </div>
                 </div>
+
+                {/* Request – tooltip shows full path */}
                 <div className="min-w-0 flex-1 px-4 py-2.5">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <MethodBadge method={log.method} />
-                    <span className="shrink-0 text-muted-foreground">{log.resource}</span>
-                    <span className="truncate text-muted-foreground/50">{log.path}</span>
-                  </div>
+                  <Tooltip
+                    content={`${log.method} ${log.path}`}
+                    side="bottom"
+                    align="start"
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <MethodBadge method={log.method} />
+                      <span className="shrink-0 text-muted-foreground">
+                        {log.resource}
+                      </span>
+                      <span className="truncate text-muted-foreground/50">
+                        {log.path}
+                      </span>
+                    </div>
+                  </Tooltip>
                 </div>
+
                 <div className="w-[32px] shrink-0" />
+
+                {/* Duration */}
                 <div className="w-[90px] shrink-0 px-4 py-2.5">
                   <span className="text-muted-foreground">{log.duration}</span>
                 </div>
+
+                {/* Status – tooltip shows human-readable status */}
                 <div className="w-[80px] shrink-0 px-4 py-2.5">
-                  <StatusBadge code={log.status} />
+                  <Tooltip
+                    content={STATUS_TEXT[log.status] || `HTTP ${log.status}`}
+                    side="bottom"
+                  >
+                    <StatusBadge code={log.status} />
+                  </Tooltip>
                 </div>
+
+                {/* Actions */}
                 <div className="flex w-[90px] shrink-0 items-center justify-end gap-2 px-3 py-2.5">
-                  <span className="text-[12px] text-muted-foreground/60">{log.count}</span>
+                  <Tooltip
+                    content={
+                      log.count === 0
+                        ? "No sub-requests"
+                        : `${log.count} related sub-requests`
+                    }
+                    side="bottom"
+                    align="end"
+                  >
+                    <span className="text-[12px] text-muted-foreground/60">
+                      {log.count}
+                    </span>
+                  </Tooltip>
                   <button
                     onClick={(e) => e.stopPropagation()}
                     className="flex size-6 items-center justify-center rounded transition-colors hover:bg-muted"
@@ -528,6 +666,10 @@ function LogsTable({
   )
 }
 
+// ---------------------------------------------------------------------------
+// Table headers
+// ---------------------------------------------------------------------------
+
 function TimeColumnHeader({
   className,
   showRelativeTime,
@@ -539,19 +681,27 @@ function TimeColumnHeader({
 }) {
   return (
     <div className={cn("shrink-0 px-4", className)}>
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-1.5 transition-colors hover:text-foreground"
-        title={showRelativeTime ? "Switch to timestamps" : "Switch to relative time"}
+      <Tooltip
+        content={
+          showRelativeTime
+            ? "Switch to timestamps"
+            : "Switch to relative time"
+        }
+        side="bottom"
       >
-        {showRelativeTime ? (
-          <Clock className="size-3 text-muted-foreground" />
-        ) : (
-          <CalendarDays className="size-3 text-muted-foreground" />
-        )}
-        <span>Requested</span>
-        <ChevronDown className="size-3 text-muted-foreground" />
-      </button>
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+        >
+          {showRelativeTime ? (
+            <Clock className="size-3 text-muted-foreground" />
+          ) : (
+            <CalendarDays className="size-3 text-muted-foreground" />
+          )}
+          <span>Requested</span>
+          <ChevronDown className="size-3 text-muted-foreground" />
+        </button>
+      </Tooltip>
     </div>
   )
 }
@@ -572,7 +722,8 @@ function MethodFilterHeader({
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false)
     }
     if (open) document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
@@ -612,7 +763,9 @@ function MethodFilterHeader({
               <div className="my-1 border-t border-border" />
               <button
                 onClick={() => {
-                  methods.forEach((m) => { if (methodFilters.has(m)) onToggle(m) })
+                  methods.forEach((m) => {
+                    if (methodFilters.has(m)) onToggle(m)
+                  })
                   setOpen(false)
                 }}
                 className="w-full px-3 py-1.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-muted/50"
@@ -642,7 +795,8 @@ function StatusFilterHeader({
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false)
     }
     if (open) document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
@@ -672,7 +826,10 @@ function StatusFilterHeader({
           {options.map((opt) => (
             <button
               key={opt.value}
-              onClick={() => { onFilter(opt.value); setOpen(false) }}
+              onClick={() => {
+                onFilter(opt.value)
+                setOpen(false)
+              }}
               className="flex w-full items-center justify-between px-3 py-1.5 text-[12px] transition-colors hover:bg-muted/50"
             >
               <span>{opt.label}</span>
@@ -704,6 +861,10 @@ function SortHeader({
   )
 }
 
+// ---------------------------------------------------------------------------
+// Shared visual components
+// ---------------------------------------------------------------------------
+
 function MethodBadge({ method }: { method: HttpMethod }) {
   const colors: Record<HttpMethod, string> = {
     GET: "bg-success/10 text-success-foreground",
@@ -717,7 +878,7 @@ function MethodBadge({ method }: { method: HttpMethod }) {
     <span
       className={cn(
         "inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[11px] font-semibold",
-        colors[method]
+        colors[method],
       )}
     >
       {method}
@@ -734,7 +895,7 @@ function StatusBadge({ code }: { code: StatusCode }) {
         "inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[11px] font-semibold",
         isSuccess
           ? "bg-success/10 text-success-foreground"
-          : "bg-[#ef3737]/10 text-[#ef3737]"
+          : "bg-[#ef3737]/10 text-[#ef3737]",
       )}
     >
       {code}
@@ -755,7 +916,7 @@ function ProviderIcon({ type }: { type: string }) {
     <div
       className={cn(
         "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white",
-        colors[type] ?? "bg-muted"
+        colors[type] ?? "bg-muted",
       )}
     >
       S
@@ -771,6 +932,31 @@ function SourceIcon() {
   )
 }
 
+function ToolbarButton({ children }: { children: React.ReactNode }) {
+  return (
+    <button className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted">
+      {children}
+    </button>
+  )
+}
+
+function Toggle({ enabled }: { enabled: boolean }) {
+  return (
+    <button
+      className={cn(
+        "flex h-[18px] w-[32px] items-center rounded-full p-[2px] transition-colors",
+        enabled ? "justify-end bg-success" : "bg-[#e8e8e8]",
+      )}
+    >
+      <div className="size-[14px] rounded-full bg-white shadow-[0_2px_4px_rgba(0,35,11,0.2)]" />
+    </button>
+  )
+}
+
+function Divider() {
+  return <div className="h-4 w-px shrink-0 bg-border" />
+}
+
 function Pagination({
   total,
   page,
@@ -780,13 +966,11 @@ function Pagination({
   page: number
   pageSize: number
 }) {
-  const totalPages = Math.ceil(total / pageSize)
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
     <div className="flex items-center justify-center gap-4 py-2 text-[13px] text-muted-foreground">
-      <span>
-        Total {total} Items
-      </span>
+      <span>Total {total} Items</span>
 
       <div className="flex items-center gap-1">
         <button
@@ -802,7 +986,7 @@ function Pagination({
               "flex size-7 items-center justify-center rounded border text-[13px] font-medium transition-colors",
               p === page
                 ? "border-success bg-success/10 text-success-foreground"
-                : "border-border hover:bg-muted"
+                : "border-border hover:bg-muted",
             )}
           >
             {p}
