@@ -17,8 +17,8 @@
 
 - Filtering was probably the most complex thing to implement here 
 - First filter by time (chart selection), then apply account/method/status filters on top
-- Top Accounts ranking is computed from the time-filtered set only — so clicking a chart bar updates the ranking, but clicking an account doesn't collapse the table to one row
-- Filters are composable and independent — time chip and account chip can be added/removed without affecting each other
+- Top Accounts ranking is computed from the time-filtered set only, so clicking a chart bar updates the ranking, but clicking an account doesn't collapse the table to one row
+- Filters are composable and independent, time chip and account chip can be added/removed without affecting each other
 - "Showing X of Y" always reflects the final combined result of all active filters
 - Used html portal for tooltips so they're not bound by the container
 
